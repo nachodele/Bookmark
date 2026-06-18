@@ -34,7 +34,7 @@ export default function SearchScreen() {
   const [results, setResults] = useState<BookmarkWithBoard[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const { openActions, modals } = useBookmarkActions(() => runSearch(query));
+  const { openDetail, modals } = useBookmarkActions(() => runSearch(query));
 
   const loadCache = useCallback(async () => {
     if (!user) return;
@@ -134,7 +134,7 @@ export default function SearchScreen() {
             <BookmarkCard
               bookmark={item}
               boardName={item.board?.name}
-              onLongPress={() => openActions(item)}
+              onPress={() => openDetail(item)}
             />
           )}
         />

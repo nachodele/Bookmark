@@ -25,7 +25,6 @@ import { SearchBar } from '@/components/SearchBar';
 import { useAuth } from '@/contexts/AuthContext';
 import { useIsOnline } from '@/contexts/NetworkContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useBookmarkActions } from '@/hooks/useBookmarkActions';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -64,8 +63,6 @@ export default function HomeScreen() {
       setLoading(false);
     }
   }, [user, isOnline]);
-
-  const { openActions, modals } = useBookmarkActions(load);
 
   useFocusEffect(
     useCallback(() => {
@@ -221,7 +218,6 @@ export default function HomeScreen() {
           </View>
         </View>
       </Modal>
-      {modals}
     </Screen>
   );
 }

@@ -1,4 +1,6 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 
 type InfoModalProps = {
@@ -13,15 +15,21 @@ export function InfoModal({ visible, title, onClose, children }: InfoModalProps)
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
         <View style={[styles.header, { borderBottomColor: colors.surfaceBorder }]}>
-          <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
-          <Pressable onPress={onClose} hitSlop={12}>
-            <Text style={[styles.close, { color: colors.accent }]}>Done</Text>
+          <Pressable onPress={onClose} style={styles.backButton} hitSlop={12}>
+            <Ionicons name="chevron-back" size={22} color={colors.accent} />
+            <Text style={[styles.backLabel, { color: colors.accent }]}>Back</Text>
           </Pressable>
+          <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
         </View>
-        <ScrollView contentContainerStyle={styles.body}>{children}</ScrollView>
-      </View>
+        <ScrollView
+          contentContainerStyle={styles.body}
+          showsVerticalScrollIndicator={false}
+        >
+          {children}
+        </ScrollView>
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -29,14 +37,19 @@ export function InfoModal({ visible, title, onClose, children }: InfoModalProps)
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 16,
     borderBottomWidth: 1,
+    gap: 12,
   },
-  title: { fontSize: 18, fontWeight: '700' },
-  close: { fontSize: 16, fontWeight: '600' },
-  body: { padding: 20, paddingBottom: 40 },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    alignSelf: 'flex-start',
+  },
+  backLabel: { fontSize: 17, fontWeight: '500' },
+  title: { fontSize: 28, fontWeight: '700', paddingHorizontal: 4 },
+  body: { padding: 20, paddingBottom: 32 },
 });

@@ -1,4 +1,4 @@
-import { Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Bookmark } from '@/lib/supabase/database.types';
 import { useTheme } from '@/contexts/ThemeContext';
 import { detectSourceApp, faviconUrl } from '@/lib/utils/source';
@@ -6,19 +6,17 @@ import { detectSourceApp, faviconUrl } from '@/lib/utils/source';
 type BookmarkCardProps = {
   bookmark: Bookmark;
   boardName?: string | null;
-  onLongPress?: () => void;
+  onPress?: () => void;
 };
 
-export function BookmarkCard({ bookmark, boardName, onLongPress }: BookmarkCardProps) {
+export function BookmarkCard({ bookmark, boardName, onPress }: BookmarkCardProps) {
   const { colors } = useTheme();
   const source = bookmark.source_app ?? detectSourceApp(bookmark.url);
   const thumb = bookmark.thumbnail_url ?? faviconUrl(bookmark.url);
 
   return (
     <Pressable
-      onPress={() => Linking.openURL(bookmark.url)}
-      onLongPress={onLongPress}
-      delayLongPress={400}
+      onPress={onPress}
       style={({ pressed }) => [
         styles.card,
         {

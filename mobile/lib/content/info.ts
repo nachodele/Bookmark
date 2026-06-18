@@ -19,8 +19,8 @@ export const FAQ = [
     a: 'We read the link title, description, and metadata, then assign it to an existing board or create a new topic-based board (e.g. Techno, Football).',
   },
   {
-    q: 'Can I move or rename saves?',
-    a: 'Long-press any bookmark to move it, rename it, or delete it.',
+    q: 'Can I move or edit saves?',
+    a: 'Tap any link to view full details. From there you can edit the title and description, move it to another board, or delete it.',
   },
   {
     q: 'Does it work offline?',
@@ -34,5 +34,5 @@ export const FAQ = [
 
 export const SUPPORT = {
   title: 'Support',
-  body: 'Need help or want to report a bug?\n\nEmail: support@bookmark.app\n\nInclude your device model and what you were trying to do. We typically respond within 48 hours.',
+  body: 'Need help or want to report a bug?\n\nEmail: supportbookmark@gmail.com\n\nInclude your device model and what you were trying to do. We typically respond within 48 hours.',
 };

@@ -10,9 +10,9 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import type { ThemeMode } from '@/lib/theme';
 import { validateSignUp } from '@/lib/utils/auth';
 import { PasswordInput } from '@/components/PasswordInput';
 import { InfoModal } from '@/components/InfoModal';
@@ -55,7 +55,7 @@ function MenuRow({
 
 export default function AccountScreen() {
   const { user, loading, signIn, signUp, signOut } = useAuth();
-  const { colors, mode, setMode } = useTheme();
+  const { colors } = useTheme();
   const [email, setEmail] = useState('');
   const [emailConfirm, setEmailConfirm] = useState('');
   const [password, setPassword] = useState('');
@@ -102,8 +102,6 @@ export default function AccountScreen() {
   const canSubmit = isSignUp
     ? Boolean(email && emailConfirm && password && passwordConfirm)
     : Boolean(email && password);
-
-  const themeOptions: ThemeMode[] = ['system', 'light', 'dark'];
 
   if (loading) {
     return (
@@ -212,32 +210,9 @@ export default function AccountScreen() {
           </View>
         </View>
 
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>APPEARANCE</Text>
-        <View style={styles.themeRow}>
-          {themeOptions.map((option) => (
-            <Pressable
-              key={option}
-              onPress={() => setMode(option)}
-              style={[
-                styles.themeChip,
-                {
-                  backgroundColor: mode === option ? colors.accent : colors.surface,
-                  borderColor: colors.surfaceBorder,
-                },
-              ]}
-            >
-              <Text
-                style={{
-                  color: mode === option ? '#fff' : colors.text,
-                  fontWeight: '600',
-                  textTransform: 'capitalize',
-                  fontSize: 13,
-                }}
-              >
-                {option}
-              </Text>
-            </Pressable>
-          ))}
+        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>GENERAL</Text>
+        <View style={styles.menuGroup}>
+          <MenuRow icon="settings-outline" label="Settings" onPress={() => router.push('/settings')} colors={colors} />
         </View>
 
         <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>HELP</Text>
@@ -265,8 +240,8 @@ export default function AccountScreen() {
 
       <InfoModal visible={infoView === 'support'} title={SUPPORT.title} onClose={() => setInfoView(null)}>
         <Text style={[styles.infoBody, { color: colors.textSecondary }]}>{SUPPORT.body}</Text>
-        <Pressable onPress={() => Linking.openURL('mailto:support@bookmark.app')}>
-          <Text style={[styles.link, { color: colors.accent, marginTop: 16 }]}>Email support@bookmark.app</Text>
+        <Pressable onPress={() => Linking.openURL('mailto:supportbookmark@gmail.com')}>
+          <Text style={[styles.link, { color: colors.accent, marginTop: 16 }]}>Email supportbookmark@gmail.com</Text>
         </Pressable>
       </InfoModal>
     </Screen>
@@ -309,8 +284,6 @@ const styles = StyleSheet.create({
   profileLabel: { fontSize: 13 },
   email: { fontSize: 16, fontWeight: '600' },
   sectionTitle: { fontSize: 12, fontWeight: '700', letterSpacing: 0.8, marginTop: 12, marginBottom: 4 },
-  themeRow: { flexDirection: 'row', gap: 8 },
-  themeChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, borderWidth: 1 },
   menuGroup: { gap: 8 },
   menuRow: {
     flexDirection: 'row',

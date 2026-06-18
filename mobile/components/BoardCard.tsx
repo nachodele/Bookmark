@@ -43,9 +43,6 @@ export function BoardCard({ board, onPress }: BoardCardProps) {
           <Text style={styles.nameOnCover} numberOfLines={2}>
             {board.name}
           </Text>
-          <Text style={styles.countOnCover}>
-            {board.bookmark_count} {board.bookmark_count === 1 ? 'link' : 'links'}
-          </Text>
         </View>
       </View>
     </Pressable>
@@ -97,10 +94,5 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.4)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
-  },
-  countOnCover: {
-    color: 'rgba(255,255,255,0.85)',
-    fontSize: 12,
-    fontWeight: '500',
   },
 });

@@ -53,6 +53,13 @@ function RootNavigator() {
             headerBackTitle: 'Back',
           }}
         />
+        <Stack.Screen
+          name="settings"
+          options={{
+            title: 'Settings',
+            headerBackTitle: 'Back',
+          }}
+        />
       </Stack>
       <ShareToastBanner toast={toast} />
     </>

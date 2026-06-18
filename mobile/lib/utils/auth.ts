@@ -14,6 +14,29 @@ export function validatePassword(password: string): string | null {
   return null;
 }
 
+export function validatePasswordChange(
+  currentPassword: string,
+  newPassword: string,
+  confirmPassword: string,
+): string | null {
+  if (!currentPassword.trim()) {
+    return 'Enter your current password';
+  }
+
+  const passwordError = validatePassword(newPassword);
+  if (passwordError) return passwordError;
+
+  if (newPassword !== confirmPassword) {
+    return 'Passwords do not match';
+  }
+
+  if (currentPassword === newPassword) {
+    return 'New password must be different from your current password';
+  }
+
+  return null;
+}
+
 export function validateSignUp(
   email: string,
   emailConfirm: string,

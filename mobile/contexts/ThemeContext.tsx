@@ -24,19 +24,23 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const systemScheme = useColorScheme();
-  const [mode, setModeState] = useState<ThemeMode>('system');
+  const [mode, setModeState] = useState<ThemeMode>('dark');
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY).then((stored) => {
-      if (stored === 'light' || stored === 'dark' || stored === 'system') {
+      if (stored === 'light' || stored === 'dark') {
         setModeState(stored);
+      } else if (stored === 'system') {
+        setModeState('dark');
+        AsyncStorage.setItem(STORAGE_KEY, 'dark');
       }
     });
   }, []);
 
   const setMode = useCallback((next: ThemeMode) => {
-    setModeState(next);
-    AsyncStorage.setItem(STORAGE_KEY, next);
+    const resolved = next === 'system' ? 'dark' : next;
+    setModeState(resolved);
+    AsyncStorage.setItem(STORAGE_KEY, resolved);
   }, []);
 
   const isDark = mode === 'system' ? systemScheme === 'dark' : mode === 'dark';

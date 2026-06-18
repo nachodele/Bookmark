@@ -3,7 +3,7 @@ import { Alert } from 'react-native';
 import type { Board, BookmarkWithBoard } from '@/lib/supabase/database.types';
 import { deleteBookmark, updateBookmark } from '@/lib/api/bookmarks';
 import { fetchBoardNames, moveBookmark } from '@/lib/api/boards';
-import { BookmarkActionsModal } from '@/components/BookmarkActionsModal';
+import { BookmarkDetailModal } from '@/components/BookmarkDetailModal';
 import { BoardPickerModal } from '@/components/BoardPickerModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { useIsOnline } from '@/contexts/NetworkContext';
@@ -15,11 +15,12 @@ export function useBookmarkActions(onChanged?: () => void) {
   const [boards, setBoards] = useState<Board[]>([]);
   const [pickerVisible, setPickerVisible] = useState(false);
 
-  const openActions = useCallback((bookmark: BookmarkWithBoard) => {
+  const openDetail = useCallback((bookmark: BookmarkWithBoard) => {
     setSelected(bookmark);
+    setPickerVisible(false);
   }, []);
 
-  const closeActions = useCallback(() => {
+  const closeDetail = useCallback(() => {
     setSelected(null);
     setPickerVisible(false);
   }, []);
@@ -43,29 +44,40 @@ export function useBookmarkActions(onChanged?: () => void) {
     if (!user || !selected) return;
     await moveBookmark(selected.id, boardId, user.id);
     onChanged?.();
-    closeActions();
+    closeDetail();
   };
 
-  const handleRename = async (title: string) => {
+  const handleSave = async (updates: { title: string; description: string }) => {
     if (!user || !selected || !requireOnline()) return;
-    await updateBookmark(selected.id, user.id, { title });
+    await updateBookmark(selected.id, user.id, updates);
+    setSelected((prev) => (prev ? { ...prev, ...updates } : prev));
     onChanged?.();
   };
 
   const handleDelete = async () => {
     if (!user || !selected || !requireOnline()) return;
-    await deleteBookmark(selected.id, user.id);
-    onChanged?.();
+    Alert.alert('Delete link', 'Remove this bookmark permanently?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          await deleteBookmark(selected.id, user.id);
+          onChanged?.();
+          closeDetail();
+        },
+      },
+    ]);
   };
 
   const modals = (
     <>
-      <BookmarkActionsModal
+      <BookmarkDetailModal
         visible={Boolean(selected) && !pickerVisible}
         bookmark={selected}
-        onClose={closeActions}
+        onClose={closeDetail}
         onMove={openMovePicker}
-        onRename={handleRename}
+        onSave={handleSave}
         onDelete={handleDelete}
       />
       <BoardPickerModal
@@ -78,5 +90,5 @@ export function useBookmarkActions(onChanged?: () => void) {
     </>
   );
 
-  return { openActions, modals };
+  return { openDetail, modals };
 }

@@ -53,7 +53,6 @@ export default function BoardDetailScreen() {
 
       if (board?.name) {
         setBoardName(board.name);
-        navigation.setOptions({ title: board.name });
       }
 
       setBookmarks(items);
@@ -64,7 +63,7 @@ export default function BoardDetailScreen() {
     }
   }, [user, id, navigation]);
 
-  const { openActions, modals } = useBookmarkActions(load);
+  const { openDetail, modals } = useBookmarkActions(load);
 
   useEffect(() => {
     load();
@@ -72,13 +71,23 @@ export default function BoardDetailScreen() {
 
   useLayoutEffect(() => {
     navigation.setOptions({
+      headerTitle: () => (
+        <View style={styles.headerTitleWrap}>
+          <Text style={[styles.headerBoardName, { color: colors.text }]} numberOfLines={1}>
+            {boardName}
+          </Text>
+          <Text style={[styles.headerLinkCount, { color: colors.textSecondary }]}>
+            {bookmarks.length} {bookmarks.length === 1 ? 'link' : 'links'}
+          </Text>
+        </View>
+      ),
       headerRight: () => (
         <Pressable onPress={() => setMenuVisible(true)} style={{ paddingHorizontal: 12 }}>
           <Text style={{ color: colors.accent, fontSize: 22, fontWeight: '600' }}>···</Text>
         </Pressable>
       ),
     });
-  }, [navigation, colors.accent]);
+  }, [navigation, colors, boardName, bookmarks.length]);
 
   const filtered = useMemo(() => {
     const withBoard = bookmarks.map(
@@ -98,7 +107,6 @@ export default function BoardDetailScreen() {
     try {
       const board = await renameBoard(id, renameValue, user.id);
       setBoardName(board.name);
-      navigation.setOptions({ title: board.name });
       setRenameVisible(false);
       setMenuVisible(false);
     } catch (error) {
@@ -140,15 +148,13 @@ export default function BoardDetailScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {bookmarks.length > 0 ? (
-        <View style={styles.searchWrap}>
-          <SearchBar
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Search in this board..."
-          />
-        </View>
-      ) : null}
+      <View style={styles.searchWrap}>
+        <SearchBar
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search links in this board..."
+        />
+      </View>
 
       {filtered.length === 0 ? (
         <View style={styles.empty}>
@@ -170,8 +176,8 @@ export default function BoardDetailScreen() {
           renderItem={({ item }) => (
             <BookmarkCard
               bookmark={item}
-              onLongPress={() =>
-                openActions({ ...item, board: { id: id!, name: boardName } })
+              onPress={() =>
+                openDetail({ ...item, board: { id: id!, name: boardName } })
               }
             />
           )}
@@ -237,6 +243,9 @@ export default function BoardDetailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  headerTitleWrap: { alignItems: 'center', maxWidth: 220 },
+  headerBoardName: { fontSize: 17, fontWeight: '600' },
+  headerLinkCount: { fontSize: 12, marginTop: 2 },
   searchWrap: { padding: 16, paddingBottom: 0 },
   list: { padding: 16 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 8 },
