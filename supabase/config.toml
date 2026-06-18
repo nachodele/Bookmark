@@ -1,0 +1,14 @@
+# Supabase local config — replace project_id after linking
+# Run: supabase link --project-ref YOUR_PROJECT_REF
+
+[project]
+# id = "your-project-ref"
+
+[api]
+enabled = true
+
+[auth]
+enabled = true
+
+[functions.save-bookmark]
+verify_jwt = true

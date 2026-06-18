@@ -1,36 +1,79 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Bookmark
 
-## Getting Started
+AI-powered link organizer for **Android and iOS**. Share URLs from any app; Gemini classifies them into visual boards.
 
-First, run the development server:
+## Structure
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+Bookmark/
+├── mobile/                 # Expo React Native app
+├── supabase/
+│   ├── migrations/         # Database schema + RLS
+│   └── functions/          # save-bookmark edge function (AI + storage)
+└── docs/                   # Setup guides
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Quick start
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 1. Supabase
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+**New project?** Follow **[docs/SUPABASE_SETUP.md](docs/SUPABASE_SETUP.md)** step by step.
 
-## Learn More
+Summary:
 
-To learn more about Next.js, take a look at the following resources:
+1. Create project at [supabase.com/dashboard](https://supabase.com/dashboard)
+2. Enable **Email** auth
+3. Run `supabase/migrations/20240617000000_boards_schema.sql` in SQL Editor
+4. Deploy `save-bookmark` function + set `GEMINI_API_KEY` secret
+5. Copy URL + anon key into `mobile/.env`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 2. AI backend
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+See [docs/GEMINI_SETUP.md](docs/GEMINI_SETUP.md).
 
-## Deploy on Vercel
+```bash
+supabase login
+supabase link --project-ref YOUR_PROJECT_REF
+supabase secrets set GEMINI_API_KEY=your-key
+supabase functions deploy save-bookmark
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### 3. Mobile app (Android first)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+cd mobile
+cp .env.example .env   # EXPO_PUBLIC_SUPABASE_URL + EXPO_PUBLIC_SUPABASE_ANON_KEY
+npm install
+npm run android:prebuild
+npm run android
+```
+
+iOS later: `npm run ios:prebuild` then `npm run ios`.
+
+> Share extensions need a **dev build** — Expo Go is not supported.
+
+## Features (v1)
+
+- Email/password accounts — each user sees only their own data
+- Share Sheet save (Android + iOS)
+- AI board assignment + descriptions (Gemini, free tier)
+- Home boards grid + **Recent** saves
+- **Global search** across all links
+- Long-press: move, rename, delete bookmarks
+- Board rename / delete
+- Dark / light / system theme
+- Offline board cache
+
+## v2 (planned)
+
+- Shared boards / collaboration
+- Web / desktop app
+- Browser extension
+
+## Environment
+
+| Variable | Where |
+|----------|-------|
+| `EXPO_PUBLIC_SUPABASE_URL` | `mobile/.env` |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | `mobile/.env` |
+| `GEMINI_API_KEY` | Supabase secrets |
