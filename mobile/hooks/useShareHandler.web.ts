@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useShareIntentContext } from 'expo-share-intent';
 import { useAuth } from '@/contexts/AuthContext';
 import { useIsOnline } from '@/contexts/NetworkContext';
-import { saveBookmark } from '@/lib/api/share';
 import { PENDING_SHARE_KEY } from '@/lib/share/constants';
-import { detectSourceApp, extractUrl } from '@/lib/utils/source';
+import { saveBookmark } from '@/lib/api/share';
+import { detectSourceApp } from '@/lib/utils/source';
 
 export type ShareToast = {
   message: string;
@@ -13,7 +12,6 @@ export type ShareToast = {
 };
 
 export function useShareHandler(onSaved?: () => void) {
-  const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
   const { user, session } = useAuth();
   const isOnline = useIsOnline();
   const [toast, setToast] = useState<ShareToast | null>(null);
@@ -27,19 +25,13 @@ export function useShareHandler(onSaved?: () => void) {
   const processShare = useCallback(
     async (url: string, title: string) => {
       if (!user) {
-        await AsyncStorage.setItem(
-          PENDING_SHARE_KEY,
-          JSON.stringify({ url, title }),
-        );
+        await AsyncStorage.setItem(PENDING_SHARE_KEY, JSON.stringify({ url, title }));
         showToast('Sign in to save this link', 'error');
         return;
       }
 
       if (!isOnline) {
-        await AsyncStorage.setItem(
-          PENDING_SHARE_KEY,
-          JSON.stringify({ url, title }),
-        );
+        await AsyncStorage.setItem(PENDING_SHARE_KEY, JSON.stringify({ url, title }));
         showToast('Offline — link queued until connected', 'error');
         return;
       }
@@ -67,38 +59,28 @@ export function useShareHandler(onSaved?: () => void) {
     [user, session, isOnline, showToast, onSaved],
   );
 
-  useEffect(() => {
-    if (!hasShareIntent || processingRef.current) return;
+  const drainPendingShare = useCallback(async () => {
+    if (processingRef.current) return;
 
-    const url =
-      shareIntent.webUrl ??
-      extractUrl(shareIntent.text) ??
-      extractUrl(shareIntent.meta?.title);
+    const raw = await AsyncStorage.getItem(PENDING_SHARE_KEY);
+    if (!raw) return;
 
-    if (!url) return;
+    try {
+      const pending = JSON.parse(raw) as { url: string; title: string };
+      if (!pending.url) return;
 
-    processingRef.current = true;
-    const title = shareIntent.meta?.title ?? shareIntent.text ?? '';
-
-    processShare(url, title).finally(() => {
-      resetShareIntent();
+      processingRef.current = true;
+      await processShare(pending.url, pending.title ?? '');
+    } catch {
+      await AsyncStorage.removeItem(PENDING_SHARE_KEY);
+    } finally {
       processingRef.current = false;
-    });
-  }, [hasShareIntent, shareIntent, processShare, resetShareIntent]);
+    }
+  }, [processShare]);
 
   useEffect(() => {
-    if (!user || !isOnline) return;
-
-    AsyncStorage.getItem(PENDING_SHARE_KEY).then((raw) => {
-      if (!raw) return;
-      try {
-        const pending = JSON.parse(raw) as { url: string; title: string };
-        processShare(pending.url, pending.title);
-      } catch {
-        AsyncStorage.removeItem(PENDING_SHARE_KEY);
-      }
-    });
-  }, [user, isOnline, processShare]);
+    void drainPendingShare();
+  }, [drainPendingShare, user, isOnline]);
 
   return { toast };
 }

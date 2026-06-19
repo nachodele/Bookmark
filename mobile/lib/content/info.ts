@@ -42,6 +42,20 @@ export const GUIDE = {
   ],
 };
 
+export function getGuideSteps(web: boolean) {
+  return GUIDE.steps.map((step) => {
+    if (web && step.title.startsWith('3.')) {
+      return {
+        ...step,
+        title: '3. Save links',
+        body:
+          'Android (installed PWA): Share from any app → Bookmark — same as the native app.\n\niPhone / desktop: open the Save tab and paste a URL.\n\nInstall first: Add to Home Screen (Android/iPhone) so sharing works.',
+      };
+    }
+    return step;
+  });
+}
+
 export const FAQ = [
   {
     q: 'How do I save a link?',

@@ -17,6 +17,18 @@
         "buildType": "apk"
       }
     },
+    "ios-simulator": {
+      "extends": "preview",
+      "ios": {
+        "simulator": true
+      }
+    },
+    "ios-device": {
+      "extends": "preview",
+      "ios": {
+        "simulator": false
+      }
+    },
     "production": {
       "android": {
         "buildType": "app-bundle"

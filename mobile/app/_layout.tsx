@@ -1,12 +1,14 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
-import { ShareIntentProvider } from 'expo-share-intent';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { NetworkProvider } from '@/contexts/NetworkContext';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
+import { PwaBootstrap } from '@/components/PwaBootstrap';
+import { WebShareCapture } from '@/components/WebShareCapture';
 import { ShareToastBanner } from '@/components/ShareToastBanner';
+import { ShareIntentRoot } from '@/components/ShareIntentRoot';
 import { useShareHandler } from '@/hooks/useShareHandler';
 
 function RootNavigator() {
@@ -62,20 +64,22 @@ function RootNavigator() {
         />
       </Stack>
       <ShareToastBanner toast={toast} />
+      <PwaBootstrap />
     </>
   );
 }
 
 export default function RootLayout() {
   return (
-    <ShareIntentProvider>
+    <ShareIntentRoot>
       <ThemeProvider>
         <NetworkProvider>
           <AuthProvider>
+            <WebShareCapture />
             <RootNavigator />
           </AuthProvider>
         </NetworkProvider>
       </ThemeProvider>
-    </ShareIntentProvider>
+    </ShareIntentRoot>
   );
 }

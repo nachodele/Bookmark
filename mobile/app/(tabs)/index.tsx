@@ -26,7 +26,8 @@ import { SearchBar } from '@/components/SearchBar';
 import { useAuth } from '@/contexts/AuthContext';
 import { useIsOnline } from '@/contexts/NetworkContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { GUIDE } from '@/lib/content/info';
+import { getGuideSteps, GUIDE } from '@/lib/content/info';
+import { isWeb } from '@/lib/platform';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -168,7 +169,9 @@ export default function HomeScreen() {
             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
               {search.trim()
                 ? 'Try a different search term'
-                : 'Share a link from any app — AI creates the right board automatically.'}
+                : isWeb
+                  ? 'Save a link from the Save tab — AI creates the right board automatically.'
+                  : 'Share a link from any app — AI creates the right board automatically.'}
             </Text>
           </View>
         }
@@ -235,7 +238,7 @@ export default function HomeScreen() {
 
       <InfoModal visible={guideVisible} title={GUIDE.title} onClose={() => setGuideVisible(false)}>
         <Text style={[styles.guideIntro, { color: colors.textSecondary }]}>{GUIDE.intro}</Text>
-        {GUIDE.steps.map((step) => (
+        {getGuideSteps(isWeb).map((step) => (
           <View key={step.title} style={styles.guideStep}>
             <Text style={[styles.guideStepTitle, { color: colors.text }]}>{step.title}</Text>
             <Text style={[styles.guideStepBody, { color: colors.textSecondary }]}>{step.body}</Text>
