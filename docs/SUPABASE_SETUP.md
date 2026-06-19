@@ -46,17 +46,24 @@ supabase login
 cd /path/to/Bookmark
 supabase link --project-ref YOUR_PROJECT_REF
 
-supabase secrets set GEMINI_API_KEY=your-gemini-key
+supabase secrets set GROQ_API_KEY=gsk_...
+supabase secrets set GROQ_MODEL=llama-3.3-70b-versatile
+supabase secrets set GROQ_FALLBACK_MODEL=llama-3.1-8b-instant
+supabase secrets set GEMINI_API_KEY=AIza...
 supabase functions deploy save-bookmark
 ```
 
-Get a free Gemini key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
+- Groq key: [console.groq.com](https://console.groq.com)
+- Gemini key: [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+
+Full secret list: [CLASSIFICATION.md](./CLASSIFICATION.md#supabase-secrets-complete-list)
 
 ### Option B — Dashboard (no CLI)
 
 1. **Edge Functions → Create function** → name: `save-bookmark`
 2. Paste code from `supabase/functions/save-bookmark/index.ts`
-3. **Project Settings → Edge Functions → Secrets** → add `GEMINI_API_KEY`
+3. **Project Settings → Edge Functions → Secrets** → add:
+   - `GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_FALLBACK_MODEL`, `GEMINI_API_KEY`
 4. Deploy
 
 The function URL will be:

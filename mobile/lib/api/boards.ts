@@ -113,6 +113,23 @@ export async function renameBoard(
   return data;
 }
 
+export async function updateBoardCover(
+  boardId: string,
+  coverUrl: string | null,
+  userId: string,
+): Promise<Board> {
+  const { data, error } = await supabase
+    .from('boards')
+    .update({ cover_url: coverUrl })
+    .eq('id', boardId)
+    .eq('user_id', userId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
 export async function deleteBoard(boardId: string, userId: string): Promise<void> {
   const { error: bookmarkError } = await supabase
     .from('bookmarks')

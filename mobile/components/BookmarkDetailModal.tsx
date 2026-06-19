@@ -75,8 +75,8 @@ export function BookmarkDetailModal({
               {editing ? 'Cancel' : 'Back'}
             </Text>
           </Pressable>
-          <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={2}>
-            {editing ? 'Edit link' : bookmark.title || 'Link'}
+          <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={1}>
+            {editing ? 'Edit link' : bookmark.board?.name ?? 'Link'}
           </Text>
         </View>
 

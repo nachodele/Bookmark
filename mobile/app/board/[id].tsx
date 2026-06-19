@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   Modal,
   Pressable,
   RefreshControl,
@@ -12,6 +13,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
 import { BookmarkCard } from '@/components/BookmarkCard';
 import { SearchBar } from '@/components/SearchBar';
 import { useAuth } from '@/contexts/AuthContext';
@@ -21,7 +24,9 @@ import {
   deleteBoard,
   fetchBoardBookmarks,
   renameBoard,
+  updateBoardCover,
 } from '@/lib/api/boards';
+import { uploadBoardCover } from '@/lib/api/storage';
 import { filterBookmarksLocally } from '@/lib/api/bookmarks';
 import { supabase } from '@/lib/supabase/client';
 import type { Bookmark, BookmarkWithBoard } from '@/lib/supabase/database.types';
@@ -41,6 +46,9 @@ export default function BoardDetailScreen() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [renameVisible, setRenameVisible] = useState(false);
   const [renameValue, setRenameValue] = useState('');
+  const [coverVisible, setCoverVisible] = useState(false);
+  const [coverUri, setCoverUri] = useState<string | null>(null);
+  const [coverBusy, setCoverBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!user || !id) return;
@@ -111,6 +119,49 @@ export default function BoardDetailScreen() {
       setMenuVisible(false);
     } catch (error) {
       Alert.alert('Error', error instanceof Error ? error.message : 'Could not rename board');
+    }
+  };
+
+  const pickCover = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.85,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setCoverUri(result.assets[0].uri);
+    }
+  };
+
+  const handleSaveCover = async () => {
+    if (!user || !id || !coverUri || !isOnline) return;
+    setCoverBusy(true);
+    try {
+      const coverUrl = await uploadBoardCover(user.id, coverUri);
+      await updateBoardCover(id, coverUrl, user.id);
+      setCoverVisible(false);
+      setCoverUri(null);
+      setMenuVisible(false);
+    } catch (error) {
+      Alert.alert('Error', error instanceof Error ? error.message : 'Could not update cover');
+    } finally {
+      setCoverBusy(false);
+    }
+  };
+
+  const handleRemoveCover = async () => {
+    if (!user || !id || !isOnline) return;
+    setCoverBusy(true);
+    try {
+      await updateBoardCover(id, null, user.id);
+      setCoverVisible(false);
+      setCoverUri(null);
+      setMenuVisible(false);
+    } catch (error) {
+      Alert.alert('Error', error instanceof Error ? error.message : 'Could not remove cover');
+    } finally {
+      setCoverBusy(false);
     }
   };
 
@@ -199,6 +250,15 @@ export default function BoardDetailScreen() {
             >
               <Text style={{ color: colors.text, fontSize: 16 }}>Rename board</Text>
             </Pressable>
+            <Pressable
+              onPress={() => {
+                setCoverUri(null);
+                setCoverVisible(true);
+              }}
+              style={styles.menuItem}
+            >
+              <Text style={{ color: colors.text, fontSize: 16 }}>Change cover</Text>
+            </Pressable>
             <Pressable onPress={handleDeleteBoard} style={styles.menuItem}>
               <Text style={{ color: colors.danger, fontSize: 16 }}>Delete board</Text>
             </Pressable>
@@ -229,6 +289,46 @@ export default function BoardDetailScreen() {
               </Pressable>
               <Pressable onPress={handleRenameBoard}>
                 <Text style={{ color: colors.accent, fontWeight: '600' }}>Save</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={coverVisible} transparent animationType="fade">
+        <View style={[styles.menuOverlay, { backgroundColor: colors.overlay }]}>
+          <View style={[styles.renameCard, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.renameTitle, { color: colors.text }]}>Board cover</Text>
+            <Pressable
+              onPress={pickCover}
+              style={[styles.coverPick, { borderColor: colors.surfaceBorder, backgroundColor: colors.background }]}
+            >
+              {coverUri ? (
+                <Image source={{ uri: coverUri }} style={styles.coverPreview} />
+              ) : (
+                <View style={styles.coverPlaceholder}>
+                  <Ionicons name="image-outline" size={32} color={colors.textSecondary} />
+                  <Text style={{ color: colors.textSecondary, marginTop: 6 }}>Choose image</Text>
+                </View>
+              )}
+            </Pressable>
+            <View style={styles.renameActions}>
+              <Pressable
+                onPress={() => {
+                  setCoverVisible(false);
+                  setCoverUri(null);
+                }}
+                disabled={coverBusy}
+              >
+                <Text style={{ color: colors.textSecondary }}>Cancel</Text>
+              </Pressable>
+              <Pressable onPress={handleRemoveCover} disabled={coverBusy}>
+                <Text style={{ color: colors.danger }}>Remove</Text>
+              </Pressable>
+              <Pressable onPress={handleSaveCover} disabled={coverBusy || !coverUri}>
+                <Text style={{ color: colors.accent, fontWeight: '600', opacity: coverUri ? 1 : 0.4 }}>
+                  {coverBusy ? 'Saving...' : 'Save'}
+                </Text>
               </Pressable>
             </View>
           </View>
@@ -267,5 +367,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 20,
+    alignItems: 'center',
   },
+  coverPick: {
+    width: '100%',
+    aspectRatio: 1,
+    maxHeight: 200,
+    alignSelf: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  coverPreview: { width: '100%', height: '100%' },
+  coverPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });

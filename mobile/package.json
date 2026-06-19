@@ -5,22 +5,25 @@
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "2.2.0",
-    "@react-native-community/netinfo": "11.5.2",
+    "@react-native-community/netinfo": "12.0.1",
     "@supabase/supabase-js": "^2.95.3",
     "expo": "~56.0.12",
+    "expo-build-properties": "~56.0.19",
     "expo-constants": "~56.0.13",
+    "expo-font": "~56.0.7",
     "expo-image-picker": "~56.0.18",
     "expo-linking": "~56.0.11",
     "expo-router": "~56.2.11",
     "expo-secure-store": "~56.0.4",
     "expo-share-intent": "^7.0.0",
+    "expo-splash-screen": "~56.0.10",
     "expo-status-bar": "~56.0.4",
     "expo-system-ui": "~56.0.5",
     "expo-web-browser": "~56.0.4",
     "react": "19.2.3",
     "react-native": "0.85.3",
-    "react-native-safe-area-context": "~5.6.2",
-    "react-native-screens": "~4.23.0",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "4.25.2",
     "react-native-url-polyfill": "^2.0.0"
   },
   "devDependencies": {
@@ -36,7 +39,10 @@
     "ios:prebuild": "expo prebuild --platform ios",
     "prebuild": "expo prebuild",
     "lint": "tsc --noEmit",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "build:apk": "npx eas build --platform android --profile preview",
+    "build:apk:local": "npx eas build --platform android --profile preview --local",
+    "eas:env": "bash scripts/push-eas-env.sh"
   },
   "private": true
 }

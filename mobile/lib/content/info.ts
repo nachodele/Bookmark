@@ -9,6 +9,39 @@ We believe saved content should be structured, searchable, and easy to revisit �
 Built for people who collect ideas, inspiration, and resources across the web.`,
 };
 
+export const GUIDE = {
+  title: 'How to use Bookmark',
+  intro:
+    'Bookmark learns from the boards you create. A few minutes of setup makes classification feel personal instead of generic.',
+  steps: [
+    {
+      title: '1. Create your boards first',
+      body:
+        'Before sharing links, tap + on the home screen and add the categories you actually use — e.g. Fitness, Calisthenics, CrossFit, Recipes, Techno.\n\nYou can use broad names (Fitness) or specific ones (CrossFit). Both work.',
+    },
+    {
+      title: '2. Your boards get priority',
+      body:
+        'When you share a link, AI checks your boards first. If you have Calisthenics, a plank video goes there — even if it could also fit CrossFit or Fitness.\n\nSame link, different users, different boards. That\'s intentional.',
+    },
+    {
+      title: '3. Share from any app',
+      body:
+        'Tap Share → Bookmark. We fetch the title, description, and thumbnail, then sort the link automatically.\n\nYou need a dev or production build (not Expo Go) for the Share Sheet.',
+    },
+    {
+      title: '4. Review and adjust',
+      body:
+        'Tap any save to edit the title, move it to another board, or delete it. AI gets you 90% there — you stay in control.',
+    },
+    {
+      title: 'Tips',
+      body:
+        '• Broad boards (Fitness, Food) are fine when a link fits many topics\n• Specific boards (CrossFit, K-Pop) when you want tighter organization\n• Rename or merge boards anytime from the board menu\n• Works offline for browsing; saving needs internet',
+    },
+  ],
+};
+
 export const FAQ = [
   {
     q: 'How do I save a link?',
@@ -16,7 +49,7 @@ export const FAQ = [
   },
   {
     q: 'How does AI classification work?',
-    a: 'We read the link title, description, and metadata, then assign it to an existing board or create a new topic-based board (e.g. Techno, Football).',
+    a: 'We read the link title, description, and metadata. Your existing boards are checked first, then our category catalog. See "How to use Bookmark" for tips.',
   },
   {
     q: 'Can I move or edit saves?',

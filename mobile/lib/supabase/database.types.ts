@@ -9,6 +9,33 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      board_catalog: {
+        Row: {
+          id: string;
+          name: string;
+          group_name: string;
+          sort_order: number;
+          active: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          group_name?: string;
+          sort_order?: number;
+          active?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          group_name?: string;
+          sort_order?: number;
+          active?: boolean;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       boards: {
         Row: {
           id: string;
@@ -30,6 +57,45 @@ export type Database = {
           name?: string;
           cover_url?: string | null;
           created_at?: string | null;
+        };
+        Relationships: [];
+      };
+      link_classification_cache: {
+        Row: {
+          url_hash: string;
+          url: string;
+          board_name: string;
+          title: string;
+          description: string;
+          source: string;
+          cache_version: number;
+          hit_count: number;
+          created_at: string;
+          expires_at: string;
+        };
+        Insert: {
+          url_hash: string;
+          url: string;
+          board_name: string;
+          title: string;
+          description: string;
+          source: string;
+          cache_version?: number;
+          hit_count?: number;
+          created_at?: string;
+          expires_at?: string;
+        };
+        Update: {
+          url_hash?: string;
+          url?: string;
+          board_name?: string;
+          title?: string;
+          description?: string;
+          source?: string;
+          cache_version?: number;
+          hit_count?: number;
+          created_at?: string;
+          expires_at?: string;
         };
         Relationships: [];
       };
@@ -79,7 +145,12 @@ export type Database = {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      increment_classification_cache_hit: {
+        Args: { p_url_hash: string };
+        Returns: undefined;
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };

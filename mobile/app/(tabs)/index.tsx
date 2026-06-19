@@ -19,12 +19,14 @@ import { createBoard, fetchBoards, filterBoardsByName } from '@/lib/api/boards';
 import { uploadBoardCover } from '@/lib/api/storage';
 import type { BoardWithCount } from '@/lib/supabase/database.types';
 import { BoardCard } from '@/components/BoardCard';
+import { InfoModal } from '@/components/InfoModal';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { Screen } from '@/components/Screen';
 import { SearchBar } from '@/components/SearchBar';
 import { useAuth } from '@/contexts/AuthContext';
 import { useIsOnline } from '@/contexts/NetworkContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { GUIDE } from '@/lib/content/info';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -42,6 +44,7 @@ export default function HomeScreen() {
   const [newBoardName, setNewBoardName] = useState('');
   const [coverUri, setCoverUri] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [guideVisible, setGuideVisible] = useState(false);
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -135,7 +138,18 @@ export default function HomeScreen() {
     <Screen>
       <OfflineBanner />
       <View style={styles.header}>
-        <Text style={[styles.greeting, { color: colors.text }]}>Your boards</Text>
+        <View style={styles.headerTop}>
+          <Text style={[styles.greeting, { color: colors.text }]}>Your boards</Text>
+          <Pressable
+            onPress={() => setGuideVisible(true)}
+            style={({ pressed }) => [styles.guideButton, { opacity: pressed ? 0.7 : 1 }]}
+            accessibilityRole="button"
+            accessibilityLabel="How to use Bookmark"
+          >
+            <Text style={styles.guideEmoji}>📖</Text>
+            <Text style={[styles.guideLabel, { color: colors.accent }]}>How to use</Text>
+          </Pressable>
+        </View>
         <SearchBar value={search} onChangeText={setSearch} placeholder="Search boards..." />
       </View>
 
@@ -218,6 +232,16 @@ export default function HomeScreen() {
           </View>
         </View>
       </Modal>
+
+      <InfoModal visible={guideVisible} title={GUIDE.title} onClose={() => setGuideVisible(false)}>
+        <Text style={[styles.guideIntro, { color: colors.textSecondary }]}>{GUIDE.intro}</Text>
+        {GUIDE.steps.map((step) => (
+          <View key={step.title} style={styles.guideStep}>
+            <Text style={[styles.guideStepTitle, { color: colors.text }]}>{step.title}</Text>
+            <Text style={[styles.guideStepBody, { color: colors.textSecondary }]}>{step.body}</Text>
+          </View>
+        ))}
+      </InfoModal>
     </Screen>
   );
 }
@@ -225,7 +249,20 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   centered: { alignItems: 'center', justifyContent: 'center' },
   header: { padding: 16, paddingBottom: 8, gap: 12 },
-  greeting: { fontSize: 28, fontWeight: '700' },
+  headerTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  greeting: { fontSize: 28, fontWeight: '700', flex: 1 },
+  guideButton: { alignItems: 'center', paddingTop: 2, minWidth: 72 },
+  guideEmoji: { fontSize: 26, lineHeight: 32 },
+  guideLabel: { fontSize: 11, fontWeight: '600', textAlign: 'center', marginTop: 2 },
+  guideIntro: { fontSize: 15, lineHeight: 24, marginBottom: 16 },
+  guideStep: { marginBottom: 20, gap: 6 },
+  guideStepTitle: { fontSize: 16, fontWeight: '600' },
+  guideStepBody: { fontSize: 15, lineHeight: 22 },
   grid: { paddingHorizontal: 10, paddingBottom: 100 },
   empty: { alignItems: 'center', padding: 40, gap: 12 },
   emptyTitle: { fontSize: 20, fontWeight: '600', textAlign: 'center' },
