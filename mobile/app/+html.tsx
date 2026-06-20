@@ -18,6 +18,14 @@ export default function Root({ children }: PropsWithChildren) {
         <meta name="apple-mobile-web-app-title" content="Bookmark" />
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="apple-touch-icon" href="/pwa-icon.png" />
+        <link rel="preload" href="/assets/fonts/Ionicons.ttf" as="font" type="font/ttf" crossOrigin="" />
+        <style id="bookmark-ionicons">{`
+          @font-face {
+            font-family: 'ionicons';
+            src: url('/assets/fonts/Ionicons.ttf') format('truetype');
+            font-display: swap;
+          }
+        `}</style>
         <ScrollViewStyleReset />
       </head>
       <body>{children}</body>

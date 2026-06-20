@@ -43,10 +43,10 @@
     "ios:prebuild": "expo prebuild --platform ios",
     "prebuild": "expo prebuild",
     "lint": "tsc --noEmit",
-    "postinstall": "patch-package",
+    "postinstall": "patch-package && node scripts/copy-icon-fonts.js",
     "build:apk": "npx eas build --platform android --profile preview",
     "build:apk:local": "npx eas build --platform android --profile preview --local",
-    "build:web": "expo export --platform web && node scripts/patch-pwa-html.js",
+    "build:web": "node scripts/copy-icon-fonts.js && expo export --platform web && node scripts/patch-pwa-html.js",
     "build:ios-simulator": "npx eas build --platform ios --profile ios-simulator",
     "build:ios": "npx eas build --platform ios --profile ios-device",
     "eas:env": "bash scripts/push-eas-env.sh"
