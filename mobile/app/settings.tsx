@@ -83,11 +83,11 @@ export default function SettingsScreen() {
                 <Ionicons
                   name={option === 'dark' ? 'moon' : 'sunny'}
                   size={18}
-                  color={mode === option ? '#fff' : colors.text}
+                  color={mode === option ? colors.onAccent : colors.text}
                 />
                 <Text
                   style={{
-                    color: mode === option ? '#fff' : colors.text,
+                    color: mode === option ? colors.onAccent : colors.text,
                     fontWeight: '600',
                     textTransform: 'capitalize',
                   }}
@@ -138,9 +138,9 @@ export default function SettingsScreen() {
                   ]}
                 >
                   {changingPassword ? (
-                    <ActivityIndicator color="#fff" />
+                    <ActivityIndicator color={colors.onAccent} />
                   ) : (
-                    <Text style={styles.primaryBtnText}>Update password</Text>
+                    <Text style={[styles.primaryBtnText, { color: colors.onAccent }]}>Update password</Text>
                   )}
                 </Pressable>
               </View>
@@ -170,5 +170,5 @@ const styles = StyleSheet.create({
   email: { fontSize: 16, fontWeight: '600' },
   hint: { fontSize: 13, lineHeight: 18 },
   primaryBtn: { borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
-  primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  primaryBtnText: { fontSize: 16, fontWeight: '600' },
 });

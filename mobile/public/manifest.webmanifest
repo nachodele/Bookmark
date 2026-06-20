@@ -6,8 +6,8 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0a0a0a",
-  "theme_color": "#0a0a0a",
+  "background_color": "#C8E6F5",
+  "theme_color": "#87CEEB",
   "lang": "en",
   "icons": [
     {
@@ -24,7 +24,7 @@
     }
   ],
   "share_target": {
-    "action": "/save",
+    "action": "/",
     "method": "GET",
     "params": {
       "title": "title",

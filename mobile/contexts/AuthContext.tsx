@@ -11,6 +11,7 @@ import {
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase/client';
 import { formatAuthError } from '@/lib/utils/auth';
+import { getAuthRedirectUrl } from '@/lib/auth/redirect';
 
 type AuthContextValue = {
   user: User | null;
@@ -42,12 +43,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (data.session) {
+      setSession(data.session);
+    }
     return { error: error ? formatAuthError(error.message) : null };
   }, []);
 
   const signUp = useCallback(async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: getAuthRedirectUrl(),
+      },
+    });
 
     if (error) {
       return { error: formatAuthError(error.message) };
@@ -56,6 +66,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Supabase may return success with no identities when email already exists
     if (data.user && (!data.user.identities || data.user.identities.length === 0)) {
       return { error: 'Email already in use' };
+    }
+
+    if (data.session) {
+      setSession(data.session);
     }
 
     return { error: null };

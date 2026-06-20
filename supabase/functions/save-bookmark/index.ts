@@ -273,7 +273,7 @@ function normalizeUrl(url: string): string {
   }
 }
 
-const CACHE_VERSION = 19;;
+const CACHE_VERSION = 19;
 const CACHE_TTL_MS = 60 * 24 * 60 * 60 * 1000;
 const CACHE_STRIP_QUERY = new Set(['fbclid', 'gclid', 'si', 'is', 'feature', 'igsh', 'igshid']);
 
@@ -990,6 +990,18 @@ async function fetchLinkMetadata(url: string, shareTitle: string): Promise<LinkM
 
   const external = await fetchExternalMetadata(fetchUrl);
 
+  const externalTitle = external.title ? cleanPageTitle(external.title, fetchUrl) : '';
+  if (externalTitle && !isGenericShareTitle(externalTitle)) {
+    const oembed = await fetchOEmbed(fetchUrl);
+    return sanitizeMetadata({
+      title: pickBestTitle([externalTitle, oembed.title], fetchUrl) ?? externalTitle,
+      description: summarizeDescription(
+        pickBestDescription([external.description, oembed.description]),
+      ),
+      image: external.image ?? oembed.image ?? youtubeThumb,
+    });
+  }
+
   try {
     const res = await fetch(fetchUrl, {
       headers: {
@@ -998,7 +1010,7 @@ async function fetchLinkMetadata(url: string, shareTitle: string): Promise<LinkM
         'Accept-Language': 'en-US,en;q=0.9',
       },
       redirect: 'follow',
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(6000),
     });
 
     if (res.ok) {
@@ -1040,7 +1052,7 @@ async function fetchLinkMetadata(url: string, shareTitle: string): Promise<LinkM
       });
     }
   } catch (error) {
-    console.error('Metadata fetch failed', error);
+    console.warn('Metadata HTML fetch skipped', error instanceof Error ? error.name : error);
   }
 
   if (external.title) {
@@ -2166,6 +2178,228 @@ async function classifyLink(
   return aiUnavailableFallbackOutcome(boards, metadata, url, catalog);
 }
 
+async function findExistingBookmark(
+  supabase: SupabaseClient,
+  userId: string,
+  rawUrl: string,
+  canonicalUrl: string,
+) {
+  for (const candidate of [canonicalUrl, rawUrl]) {
+    if (!candidate) continue;
+    const { data } = await supabase
+      .from('bookmarks')
+      .select('id, title, boards(name)')
+      .eq('user_id', userId)
+      .eq('url', candidate)
+      .maybeSingle();
+    if (data) return data;
+  }
+  return null;
+}
+
+function alreadySavedResponse(boardName: string, title?: string | null) {
+  return json({
+    success: true,
+    already_saved: true,
+    board_name: boardName,
+    title: title ?? undefined,
+  });
+}
+
+type SaveBookmarkBody = {
+  url?: string;
+  title?: string;
+  description?: string;
+  source_app?: string;
+  preview?: boolean;
+  confirmed?: boolean;
+  board_id?: string;
+  board_name?: string;
+  thumbnail_url?: string | null;
+};
+
+type BoardRow = { id: string; name: string; cover_url: string | null };
+
+async function resolveBoardForSave(
+  supabase: SupabaseClient,
+  userId: string,
+  boardList: BoardRow[],
+  boardName: string,
+  coverUrl: string | null,
+): Promise<{ boardId: string; boardName: string; isNewBoard: boolean } | { error: string }> {
+  const existingBoard = boardList.find(
+    (b) => b.name.toLowerCase() === boardName.toLowerCase(),
+  );
+
+  if (existingBoard) {
+    if (!existingBoard.cover_url && coverUrl) {
+      await supabase.from('boards').update({ cover_url: coverUrl }).eq('id', existingBoard.id);
+    }
+    return { boardId: existingBoard.id, boardName: existingBoard.name, isNewBoard: false };
+  }
+
+  const { data: newBoard, error: createError } = await supabase
+    .from('boards')
+    .insert({
+      user_id: userId,
+      name: boardName,
+      cover_url: coverUrl,
+    })
+    .select('id, name')
+    .single();
+
+  if (createError) {
+    return { error: createError.message };
+  }
+
+  return { boardId: newBoard.id, boardName: newBoard.name, isNewBoard: true };
+}
+
+async function saveConfirmedBookmark(
+  supabase: SupabaseClient,
+  userId: string,
+  body: SaveBookmarkBody,
+): Promise<Response> {
+  const url = body.url?.trim();
+  if (!url) {
+    return json({ success: false, error: 'URL is required' }, 400);
+  }
+
+  const title = body.title?.trim();
+  const description = body.description?.trim();
+  if (!title || !description) {
+    return json({ success: false, error: 'Title and description are required' }, 400);
+  }
+
+  const canonicalUrl = normalizeUrlForCache(url);
+  const sourceApp = body.source_app?.trim() || 'Web';
+  const thumbnailUrl = body.thumbnail_url?.trim() || null;
+
+  const existingBookmark = await findExistingBookmark(supabase, userId, url, canonicalUrl);
+  if (existingBookmark) {
+    const boardName = (existingBookmark.boards as { name: string } | null)?.name ?? 'your board';
+    return alreadySavedResponse(boardName, existingBookmark.title);
+  }
+
+  const { data: boards, error: boardsError } = await supabase
+    .from('boards')
+    .select('id, name, cover_url')
+    .eq('user_id', userId);
+
+  if (boardsError) {
+    return json({ success: false, error: boardsError.message }, 500);
+  }
+
+  const boardList = boards ?? [];
+  let boardId = body.board_id?.trim();
+  let boardName = body.board_name?.trim() || '';
+  let isNewBoard = false;
+
+  if (boardId) {
+    const board = boardList.find((b) => b.id === boardId);
+    if (!board) {
+      return json({ success: false, error: 'Board not found' }, 404);
+    }
+    boardName = board.name;
+    if (!board.cover_url && thumbnailUrl) {
+      await supabase.from('boards').update({ cover_url: thumbnailUrl }).eq('id', boardId);
+    }
+  } else if (boardName) {
+    const resolved = await resolveBoardForSave(supabase, userId, boardList, boardName, thumbnailUrl);
+    if ('error' in resolved) {
+      return json({ success: false, error: resolved.error }, 500);
+    }
+    boardId = resolved.boardId;
+    boardName = resolved.boardName;
+    isNewBoard = resolved.isNewBoard;
+  } else {
+    return json({ success: false, error: 'Pick a board' }, 400);
+  }
+
+  const { error: insertError } = await supabase.from('bookmarks').insert({
+    user_id: userId,
+    board_id: boardId,
+    url: canonicalUrl,
+    title,
+    description,
+    source_app: sourceApp,
+    thumbnail_url: thumbnailUrl,
+  });
+
+  if (insertError) {
+    if (insertError.code === '23505') {
+      const dup = await findExistingBookmark(supabase, userId, url, canonicalUrl);
+      const savedBoard = (dup?.boards as { name: string } | null)?.name ?? boardName;
+      return alreadySavedResponse(savedBoard, dup?.title ?? title);
+    }
+    return json({ success: false, error: insertError.message }, 500);
+  }
+
+  return json({
+    success: true,
+    board_name: boardName,
+    title,
+    description,
+    is_new_board: isNewBoard,
+  });
+}
+
+async function saveClassifiedBookmark(
+  supabase: SupabaseClient,
+  userId: string,
+  params: {
+    rawUrl: string;
+    canonicalUrl: string;
+    sourceApp: string;
+    metadata: Awaited<ReturnType<typeof fetchLinkMetadata>>;
+    classified: ClassifyResult;
+    boardList: BoardRow[];
+  },
+): Promise<Response> {
+  const { rawUrl, canonicalUrl, sourceApp, metadata, classified, boardList } = params;
+
+  const resolved = await resolveBoardForSave(
+    supabase,
+    userId,
+    boardList,
+    classified.board_name,
+    metadata.image,
+  );
+
+  if ('error' in resolved) {
+    return json({ success: false, error: resolved.error }, 500);
+  }
+
+  const { boardId, boardName, isNewBoard } = resolved;
+
+  const { error: insertError } = await supabase.from('bookmarks').insert({
+    user_id: userId,
+    board_id: boardId,
+    url: canonicalUrl,
+    title: classified.title || metadata.title,
+    description: classified.description,
+    source_app: sourceApp,
+    thumbnail_url: metadata.image,
+  });
+
+  if (insertError) {
+    if (insertError.code === '23505') {
+      const dup = await findExistingBookmark(supabase, userId, rawUrl, canonicalUrl);
+      const savedBoard = (dup?.boards as { name: string } | null)?.name ?? boardName;
+      return alreadySavedResponse(savedBoard, dup?.title ?? classified.title);
+    }
+    return json({ success: false, error: insertError.message }, 500);
+  }
+
+  return json({
+    success: true,
+    board_name: boardName,
+    title: classified.title,
+    description: classified.description,
+    is_new_board: isNewBoard,
+  });
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -2191,11 +2425,15 @@ Deno.serve(async (req) => {
     return json({ success: false, error: 'Unauthorized' }, 401);
   }
 
-  let body: { url?: string; title?: string; source_app?: string };
+  let body: SaveBookmarkBody;
   try {
     body = await req.json();
   } catch {
     return json({ success: false, error: 'Invalid JSON body' }, 400);
+  }
+
+  if (body.confirmed) {
+    return saveConfirmedBookmark(supabase, user.id, body);
   }
 
   const url = body.url?.trim();
@@ -2203,21 +2441,17 @@ Deno.serve(async (req) => {
     return json({ success: false, error: 'URL is required' }, 400);
   }
 
+  const canonicalUrl = normalizeUrlForCache(url);
   const shareTitle = body.title?.trim() || '';
   const sourceApp = body.source_app?.trim() || 'Web';
 
-  const { data: existingBookmark } = await supabase
-    .from('bookmarks')
-    .select('id')
-    .eq('user_id', user.id)
-    .eq('url', url)
-    .maybeSingle();
-
+  const existingBookmark = await findExistingBookmark(supabase, user.id, url, canonicalUrl);
   if (existingBookmark) {
-    return json({ success: false, error: 'Link already saved' }, 409);
+    const boardName = (existingBookmark.boards as { name: string } | null)?.name ?? 'your board';
+    return alreadySavedResponse(boardName, existingBookmark.title);
   }
 
-  const metadata = await fetchLinkMetadata(url, shareTitle);
+  const metadata = await fetchLinkMetadata(canonicalUrl, shareTitle);
 
   const { data: boards, error: boardsError } = await supabase
     .from('boards')
@@ -2231,7 +2465,7 @@ Deno.serve(async (req) => {
   const boardList = boards ?? [];
   const catalog = await fetchBoardCatalog(supabase);
 
-  const cacheUrl = normalizeUrlForCache(url);
+  const cacheUrl = canonicalUrl;
   const urlHash = await hashUrlForCache(cacheUrl);
   const serviceClient = createServiceSupabaseClient();
 
@@ -2250,8 +2484,8 @@ Deno.serve(async (req) => {
       },
     };
   } else {
-    classificationOutcome = await classifyLink(boardList, metadata, url, sourceApp, catalog);
-    if (serviceClient && shouldCacheClassification(classificationOutcome.result, metadata, url)) {
+    classificationOutcome = await classifyLink(boardList, metadata, canonicalUrl, sourceApp, catalog);
+    if (serviceClient && shouldCacheClassification(classificationOutcome.result, metadata, canonicalUrl)) {
       await saveClassificationCache(serviceClient, urlHash, cacheUrl, classificationOutcome);
       console.log('Classification cached', { board: classificationOutcome.result.board_name });
     }
@@ -2259,59 +2493,31 @@ Deno.serve(async (req) => {
 
   const classified = classificationOutcome.result;
 
-  let boardId: string;
-  let boardName: string;
-  let isNewBoard = false;
-
   const existingBoard = boardList.find(
     (b) => b.name.toLowerCase() === classified.board_name.toLowerCase(),
   );
 
-  if (existingBoard) {
-    boardId = existingBoard.id;
-    boardName = existingBoard.name;
-    if (!existingBoard.cover_url && metadata.image) {
-      await supabase.from('boards').update({ cover_url: metadata.image }).eq('id', boardId);
-    }
-  } else {
-    isNewBoard = true;
-    const { data: newBoard, error: createError } = await supabase
-      .from('boards')
-      .insert({
-        user_id: user.id,
-        name: classified.board_name,
-        cover_url: metadata.image,
-      })
-      .select('id, name')
-      .single();
-
-    if (createError) {
-      return json({ success: false, error: createError.message }, 500);
-    }
-
-    boardId = newBoard.id;
-    boardName = newBoard.name;
+  if (body.preview) {
+    return json({
+      success: true,
+      preview: true,
+      url: canonicalUrl,
+      title: classified.title || metadata.title,
+      description: classified.description,
+      board_name: classified.board_name,
+      board_id: existingBoard?.id ?? null,
+      is_new_board: !existingBoard,
+      thumbnail_url: metadata.image,
+      source_app: sourceApp,
+    });
   }
 
-  const { error: insertError } = await supabase.from('bookmarks').insert({
-    user_id: user.id,
-    board_id: boardId,
-    url,
-    title: classified.title || metadata.title,
-    description: classified.description,
-    source_app: sourceApp,
-    thumbnail_url: metadata.image,
-  });
-
-  if (insertError) {
-    return json({ success: false, error: insertError.message }, 500);
-  }
-
-  return json({
-    success: true,
-    board_name: boardName,
-    title: classified.title,
-    description: classified.description,
-    is_new_board: isNewBoard,
+  return saveClassifiedBookmark(supabase, user.id, {
+    rawUrl: url,
+    canonicalUrl,
+    sourceApp,
+    metadata,
+    classified,
+    boardList,
   });
 });

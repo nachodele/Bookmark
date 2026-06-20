@@ -15,19 +15,19 @@ export const GUIDE = {
     'Bookmark learns from the boards you create. A few minutes of setup makes classification feel personal instead of generic.',
   steps: [
     {
-      title: '1. Create your boards first',
+      title: '1. Create boards',
       body:
-        'Before sharing links, tap + on the home screen and add the categories you actually use — e.g. Fitness, Calisthenics, CrossFit, Recipes, Techno.\n\nYou can use broad names (Fitness) or specific ones (CrossFit). Both work.',
+        'Tap New board on the home screen and add categories you use — Fitness, Recipes, Design…\n\nBroad or specific names both work.',
     },
     {
       title: '2. Your boards get priority',
       body:
-        'When you share a link, AI checks your boards first. If you have Calisthenics, a plank video goes there — even if it could also fit CrossFit or Fitness.\n\nSame link, different users, different boards. That\'s intentional.',
+        'When you share a link, AI checks your boards first. If you have Calisthenics, a plank video goes there — even if it could also fit CrossFit or Fitness.',
     },
     {
-      title: '3. Share from any app',
+      title: '3. Add links',
       body:
-        'Tap Share → Bookmark. We fetch the title, description, and thumbnail, then sort the link automatically.\n\nYou need a dev or production build (not Expo Go) for the Share Sheet.',
+        'Add link: you write the URL, title, description, and pick the board — no AI.\n\nShare Sheet (Android app): Share → Bookmark — AI classifies automatically.',
     },
     {
       title: '4. Review and adjust',
@@ -42,18 +42,8 @@ export const GUIDE = {
   ],
 };
 
-export function getGuideSteps(web: boolean) {
-  return GUIDE.steps.map((step) => {
-    if (web && step.title.startsWith('3.')) {
-      return {
-        ...step,
-        title: '3. Save links',
-        body:
-          'Android (installed PWA): Share from any app → Bookmark — same as the native app.\n\niPhone / desktop: open the Save tab and paste a URL.\n\nInstall first: Add to Home Screen (Android/iPhone) so sharing works.',
-      };
-    }
-    return step;
-  });
+export function getGuideSteps() {
+  return GUIDE.steps;
 }
 
 export const FAQ = [
@@ -81,5 +71,5 @@ export const FAQ = [
 
 export const SUPPORT = {
   title: 'Support',
-  body: 'Need help or want to report a bug?\n\nEmail: supportbookmark@gmail.com\n\nInclude your device model and what you were trying to do. We typically respond within 48 hours.',
+  body: 'Need help or want to report a bug?\n\nInclude your device model and what you were trying to do. We typically respond within 48 hours.',
 };

@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useShareIntentContext } from 'expo-share-intent';
 import { useAuth } from '@/contexts/AuthContext';
 import { useIsOnline } from '@/contexts/NetworkContext';
-import { saveBookmark } from '@/lib/api/share';
+import { previewShareBookmark } from '@/lib/api/share';
 import { PENDING_SHARE_KEY } from '@/lib/share/constants';
 import { detectSourceApp, extractUrl } from '@/lib/utils/source';
 
@@ -12,11 +12,26 @@ export type ShareToast = {
   type: 'success' | 'error';
 };
 
+export type ShareReviewDraft = {
+  userId: string;
+  url: string;
+  title: string;
+  description: string;
+  boardName: string;
+  boardId: string | null;
+  isNewBoard: boolean;
+  thumbnailUrl: string | null;
+  sourceApp: string;
+};
+
 export function useShareHandler(onSaved?: () => void) {
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
   const { user, session } = useAuth();
   const isOnline = useIsOnline();
   const [toast, setToast] = useState<ShareToast | null>(null);
+  const [reviewVisible, setReviewVisible] = useState(false);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewDraft, setReviewDraft] = useState<ShareReviewDraft | null>(null);
   const processingRef = useRef(false);
 
   const showToast = useCallback((message: string, type: ShareToast['type']) => {
@@ -24,47 +39,78 @@ export function useShareHandler(onSaved?: () => void) {
     setTimeout(() => setToast(null), 3500);
   }, []);
 
-  const processShare = useCallback(
+  const dismissReview = useCallback(() => {
+    setReviewVisible(false);
+    setReviewLoading(false);
+    setReviewDraft(null);
+  }, []);
+
+  const openShareReview = useCallback(
     async (url: string, title: string) => {
       if (!user) {
-        await AsyncStorage.setItem(
-          PENDING_SHARE_KEY,
-          JSON.stringify({ url, title }),
-        );
+        await AsyncStorage.setItem(PENDING_SHARE_KEY, JSON.stringify({ url, title }));
         showToast('Sign in to save this link', 'error');
         return;
       }
 
       if (!isOnline) {
-        await AsyncStorage.setItem(
-          PENDING_SHARE_KEY,
-          JSON.stringify({ url, title }),
-        );
+        await AsyncStorage.setItem(PENDING_SHARE_KEY, JSON.stringify({ url, title }));
         showToast('Offline — link queued until connected', 'error');
         return;
       }
 
-      try {
-        if (!session?.access_token) {
-          showToast('Sign in to save this link', 'error');
-          return;
-        }
+      if (!session?.access_token) {
+        showToast('Sign in to save this link', 'error');
+        return;
+      }
 
-        const result = await saveBookmark(session.access_token, {
+      setReviewVisible(true);
+      setReviewLoading(true);
+      setReviewDraft(null);
+
+      try {
+        const result = await previewShareBookmark(session.access_token, {
           url,
           title,
           source_app: detectSourceApp(url),
         });
 
         await AsyncStorage.removeItem(PENDING_SHARE_KEY);
-        showToast(`Saved to ${result.board_name ?? 'your board'}`, 'success');
-        onSaved?.();
+
+        if (result.already_saved) {
+          dismissReview();
+          showToast(`Already in ${result.board_name ?? 'your board'}`, 'success');
+          return;
+        }
+
+        setReviewDraft({
+          userId: user.id,
+          url: result.url ?? url,
+          title: result.title ?? title,
+          description: result.description ?? '',
+          boardName: result.board_name ?? 'Other',
+          boardId: result.board_id ?? null,
+          isNewBoard: Boolean(result.is_new_board),
+          thumbnailUrl: result.thumbnail_url ?? null,
+          sourceApp: result.source_app ?? detectSourceApp(url),
+        });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to save link';
+        dismissReview();
+        const message = error instanceof Error ? error.message : 'Failed to analyze link';
         showToast(message, 'error');
+      } finally {
+        setReviewLoading(false);
       }
     },
-    [user, session, isOnline, showToast, onSaved],
+    [user, session, isOnline, showToast, dismissReview],
+  );
+
+  const handleReviewSaved = useCallback(
+    (boardName: string) => {
+      showToast(`Saved to ${boardName}`, 'success');
+      onSaved?.();
+    },
+    [showToast, onSaved],
   );
 
   useEffect(() => {
@@ -80,11 +126,11 @@ export function useShareHandler(onSaved?: () => void) {
     processingRef.current = true;
     const title = shareIntent.meta?.title ?? shareIntent.text ?? '';
 
-    processShare(url, title).finally(() => {
+    openShareReview(url, title).finally(() => {
       resetShareIntent();
       processingRef.current = false;
     });
-  }, [hasShareIntent, shareIntent, processShare, resetShareIntent]);
+  }, [hasShareIntent, shareIntent, openShareReview, resetShareIntent]);
 
   useEffect(() => {
     if (!user || !isOnline) return;
@@ -93,12 +139,19 @@ export function useShareHandler(onSaved?: () => void) {
       if (!raw) return;
       try {
         const pending = JSON.parse(raw) as { url: string; title: string };
-        processShare(pending.url, pending.title);
+        void openShareReview(pending.url, pending.title);
       } catch {
-        AsyncStorage.removeItem(PENDING_SHARE_KEY);
+        void AsyncStorage.removeItem(PENDING_SHARE_KEY);
       }
     });
-  }, [user, isOnline, processShare]);
+  }, [user, isOnline, openShareReview]);
 
-  return { toast };
+  return {
+    toast,
+    reviewVisible,
+    reviewLoading,
+    reviewDraft,
+    dismissReview,
+    handleReviewSaved,
+  };
 }

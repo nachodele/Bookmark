@@ -21,6 +21,14 @@ From **Project Settings → General**, copy:
 2. Enable **Email** provider
 3. For development you can turn **off** “Confirm email” so sign-up works instantly
 4. For production, turn **on** confirm email
+5. **Authentication → URL Configuration** — add these **Redirect URLs**:
+   - `https://bookmark-bxm.pages.dev/` (PWA email verification — use trailing slash)
+   - `https://bookmark-bxm.pages.dev/**` (wildcard, optional)
+   - `bookmark://auth/callback` (optional — if the installed app opens the link)
+
+   Set **Site URL** to `https://bookmark-bxm.pages.dev` (no path).
+
+   Do **not** use `/auth/callback` — the PWA is a single-page app and only `/` is served on Cloudflare Pages.
 
 ## 3. Run the database migration
 

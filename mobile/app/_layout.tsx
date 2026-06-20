@@ -6,25 +6,40 @@ import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { NetworkProvider } from '@/contexts/NetworkContext';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import { PwaBootstrap } from '@/components/PwaBootstrap';
+import { WebAuthCallback } from '@/components/WebAuthCallback';
 import { WebShareCapture } from '@/components/WebShareCapture';
 import { ShareToastBanner } from '@/components/ShareToastBanner';
+import { ShareReviewModal } from '@/components/ShareReviewModal';
 import { ShareIntentRoot } from '@/components/ShareIntentRoot';
 import { useShareHandler } from '@/hooks/useShareHandler';
 
 function RootNavigator() {
-  const { user, loading } = useAuth();
+  const { user, loading, session } = useAuth();
   const { colors, isDark } = useTheme();
   const segments = useSegments();
   const router = useRouter();
-  const { toast } = useShareHandler();
+  const {
+    toast,
+    reviewVisible,
+    reviewLoading,
+    reviewDraft,
+    dismissReview,
+    handleReviewSaved,
+  } = useShareHandler();
 
   useEffect(() => {
     if (loading) return;
 
-    const onAccount = (segments as string[]).includes('account');
+    const segmentList = segments as string[];
+    const onAccount = segmentList.includes('account');
+    const onAuthCallback =
+      segmentList[0] === 'auth' && segmentList[1] === 'callback';
 
-    if (!user && !onAccount) {
-      router.replace('/account');
+    if (!user) {
+      if (!onAccount && !onAuthCallback) {
+        router.replace('/account');
+      }
+      return;
     }
   }, [user, loading, segments, router]);
 
@@ -62,8 +77,22 @@ function RootNavigator() {
             headerBackTitle: 'Back',
           }}
         />
+        <Stack.Screen
+          name="auth/callback"
+          options={{
+            headerShown: false,
+          }}
+        />
       </Stack>
       <ShareToastBanner toast={toast} />
+      <ShareReviewModal
+        visible={reviewVisible}
+        loading={reviewLoading}
+        draft={reviewDraft}
+        accessToken={session?.access_token ?? null}
+        onClose={dismissReview}
+        onSaved={handleReviewSaved}
+      />
       <PwaBootstrap />
     </>
   );
@@ -75,6 +104,7 @@ export default function RootLayout() {
       <ThemeProvider>
         <NetworkProvider>
           <AuthProvider>
+            <WebAuthCallback />
             <WebShareCapture />
             <RootNavigator />
           </AuthProvider>

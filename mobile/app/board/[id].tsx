@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
+import { AddLinkModal } from '@/components/AddLinkModal';
 import { BookmarkCard } from '@/components/BookmarkCard';
 import { SearchBar } from '@/components/SearchBar';
 import { useAuth } from '@/contexts/AuthContext';
@@ -29,7 +30,7 @@ import {
 import { uploadBoardCover } from '@/lib/api/storage';
 import { filterBookmarksLocally } from '@/lib/api/bookmarks';
 import { supabase } from '@/lib/supabase/client';
-import type { Bookmark, BookmarkWithBoard } from '@/lib/supabase/database.types';
+import type { Bookmark, BookmarkWithBoard, Board } from '@/lib/supabase/database.types';
 import { useBookmarkActions } from '@/hooks/useBookmarkActions';
 
 export default function BoardDetailScreen() {
@@ -49,6 +50,7 @@ export default function BoardDetailScreen() {
   const [coverVisible, setCoverVisible] = useState(false);
   const [coverUri, setCoverUri] = useState<string | null>(null);
   const [coverBusy, setCoverBusy] = useState(false);
+  const [linkModalVisible, setLinkModalVisible] = useState(false);
 
   const load = useCallback(async () => {
     if (!user || !id) return;
@@ -90,9 +92,14 @@ export default function BoardDetailScreen() {
         </View>
       ),
       headerRight: () => (
-        <Pressable onPress={() => setMenuVisible(true)} style={{ paddingHorizontal: 12 }}>
-          <Text style={{ color: colors.accent, fontSize: 22, fontWeight: '600' }}>···</Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable onPress={() => setLinkModalVisible(true)} style={styles.headerBtn}>
+            <Ionicons name="add" size={26} color={colors.accent} />
+          </Pressable>
+          <Pressable onPress={() => setMenuVisible(true)} style={styles.headerBtn}>
+            <Text style={{ color: colors.accent, fontSize: 22, fontWeight: '600' }}>···</Text>
+          </Pressable>
+        </View>
       ),
     });
   }, [navigation, colors, boardName, bookmarks.length]);
@@ -103,6 +110,11 @@ export default function BoardDetailScreen() {
     );
     return filterBookmarksLocally(withBoard, search);
   }, [bookmarks, search, id, boardName]);
+
+  const boardForLink: Board[] = useMemo(
+    () => (user && id ? [{ id, user_id: user.id, name: boardName, cover_url: null, created_at: '' }] : []),
+    [user, id, boardName],
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -215,8 +227,20 @@ export default function BoardDetailScreen() {
           <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
             {search.trim()
               ? 'Try a different search term'
-              : 'Share content to this board from any app.'}
+              : 'Tap + to add a link to this board, or share from any app.'}
           </Text>
+          {!search.trim() ? (
+            <Pressable
+              onPress={() => setLinkModalVisible(true)}
+              style={({ pressed }) => [
+                styles.emptyAddBtn,
+                { backgroundColor: colors.accent, opacity: pressed ? 0.9 : 1 },
+              ]}
+            >
+              <Ionicons name="link" size={18} color={colors.onAccent} />
+              <Text style={[styles.emptyAddBtnText, { color: colors.onAccent }]}>Add link</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : (
         <FlatList
@@ -336,6 +360,19 @@ export default function BoardDetailScreen() {
       </Modal>
 
       {modals}
+
+      {user && id ? (
+        <AddLinkModal
+          visible={linkModalVisible}
+          userId={user.id}
+          boards={boardForLink}
+          presetBoardId={id}
+          lockBoard
+          onClose={() => setLinkModalVisible(false)}
+          onSaved={load}
+          onRequestNewBoard={() => setLinkModalVisible(false)}
+        />
+      ) : null}
     </View>
   );
 }
@@ -344,6 +381,8 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   headerTitleWrap: { alignItems: 'center', maxWidth: 220 },
+  headerActions: { flexDirection: 'row', alignItems: 'center' },
+  headerBtn: { paddingHorizontal: 10 },
   headerBoardName: { fontSize: 17, fontWeight: '600' },
   headerLinkCount: { fontSize: 12, marginTop: 2 },
   searchWrap: { padding: 16, paddingBottom: 0 },
@@ -351,6 +390,16 @@ const styles = StyleSheet.create({
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 8 },
   emptyTitle: { fontSize: 18, fontWeight: '600' },
   emptyText: { fontSize: 15, textAlign: 'center', lineHeight: 22 },
+  emptyAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 999,
+  },
+  emptyAddBtnText: { fontWeight: '700', fontSize: 15 },
   menuOverlay: { flex: 1, justifyContent: 'center', padding: 24 },
   menuCard: { borderRadius: 14, padding: 8 },
   menuItem: { paddingVertical: 14, paddingHorizontal: 16 },

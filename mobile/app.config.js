@@ -29,7 +29,7 @@ module.exports = {
     package: 'com.bookmark.app',
     versionCode: 1,
     adaptiveIcon: {
-      backgroundColor: '#0a0a0a',
+      backgroundColor: '#C8E6F5',
       foregroundImage: './assets/android-icon-foreground.png',
       backgroundImage: './assets/android-icon-background.png',
       monochromeImage: './assets/android-icon-monochrome.png',
@@ -43,14 +43,14 @@ module.exports = {
     name: 'Bookmark',
     shortName: 'Bookmark',
     description: 'Save and organize links with AI — your universal Save button for the web.',
-    themeColor: '#0a0a0a',
-    backgroundColor: '#0a0a0a',
+    themeColor: '#87CEEB',
+    backgroundColor: '#C8E6F5',
     display: 'standalone',
     orientation: 'portrait',
     startUrl: '/',
     lang: 'en',
     splash: {
-      backgroundColor: '#0a0a0a',
+      backgroundColor: '#C8E6F5',
       image: './assets/splash-icon.png',
       resizeMode: 'contain',
     },
@@ -70,7 +70,7 @@ module.exports = {
     [
       'expo-splash-screen',
       {
-        backgroundColor: '#0a0a0a',
+        backgroundColor: '#C8E6F5',
         image: './assets/splash-icon.png',
         resizeMode: 'contain',
       },

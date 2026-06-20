@@ -1,21 +1,40 @@
-export type SaveBookmarkPayload = {
+export type ShareBookmarkPayload = {
   url: string;
   title: string;
   source_app: string;
 };
 
-export type SaveBookmarkResponse = {
+export type SharePreviewResponse = {
   success: boolean;
-  board_name?: string;
+  preview?: boolean;
+  already_saved?: boolean;
+  url?: string;
+  title?: string;
   description?: string;
+  board_name?: string;
+  board_id?: string | null;
   is_new_board?: boolean;
+  thumbnail_url?: string | null;
+  source_app?: string;
+  board_name_saved?: string;
+  is_new_board_saved?: boolean;
   error?: string;
 };
 
-export async function saveBookmark(
+export type ShareConfirmPayload = {
+  url: string;
+  title: string;
+  description: string;
+  source_app: string;
+  board_id?: string;
+  board_name?: string;
+  thumbnail_url?: string | null;
+};
+
+async function shareBookmarkRequest(
   accessToken: string,
-  payload: SaveBookmarkPayload,
-): Promise<SaveBookmarkResponse> {
+  body: Record<string, unknown>,
+): Promise<SharePreviewResponse> {
   const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -30,14 +49,28 @@ export async function saveBookmark(
       Authorization: `Bearer ${accessToken}`,
       apikey: anonKey,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
 
-  const data = (await response.json()) as SaveBookmarkResponse;
+  const data = (await response.json()) as SharePreviewResponse;
 
   if (!response.ok || !data.success) {
-    throw new Error(data.error ?? `Save failed (${response.status})`);
+    throw new Error(data.error ?? `Request failed (${response.status})`);
   }
 
   return data;
+}
+
+export async function previewShareBookmark(
+  accessToken: string,
+  payload: ShareBookmarkPayload,
+): Promise<SharePreviewResponse> {
+  return shareBookmarkRequest(accessToken, { ...payload, preview: true });
+}
+
+export async function confirmShareBookmark(
+  accessToken: string,
+  payload: ShareConfirmPayload,
+): Promise<SharePreviewResponse> {
+  return shareBookmarkRequest(accessToken, { ...payload, confirmed: true });
 }

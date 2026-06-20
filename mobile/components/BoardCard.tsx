@@ -5,9 +5,10 @@ import { useTheme } from '@/contexts/ThemeContext';
 type BoardCardProps = {
   board: BoardWithCount;
   onPress: () => void;
+  height?: number;
 };
 
-export function BoardCard({ board, onPress }: BoardCardProps) {
+export function BoardCard({ board, onPress, height }: BoardCardProps) {
   const { colors, isDark } = useTheme();
 
   return (
@@ -23,11 +24,17 @@ export function BoardCard({ board, onPress }: BoardCardProps) {
         },
       ]}
     >
-      <View style={[styles.cover, { backgroundColor: colors.placeholder }]}>
+      <View
+        style={[
+          styles.cover,
+          { backgroundColor: colors.placeholder },
+          height != null ? { height } : styles.coverDefault,
+        ]}
+      >
         {board.cover_url ? (
           <Image source={{ uri: board.cover_url }} style={styles.coverImage} />
         ) : (
-          <View style={[styles.fallback, { backgroundColor: isDark ? '#1e293b' : '#dbeafe' }]}>
+          <View style={[styles.fallback, { backgroundColor: colors.accentMuted }]}>
             <Text style={[styles.coverFallback, { color: colors.accent }]}>
               {board.name.charAt(0).toUpperCase()}
             </Text>
@@ -52,19 +59,21 @@ export function BoardCard({ board, onPress }: BoardCardProps) {
 const styles = StyleSheet.create({
   card: {
     flex: 1,
-    borderRadius: 18,
+    borderRadius: 12,
     borderWidth: 1,
     overflow: 'hidden',
-    margin: 6,
-    elevation: 3,
+    margin: 4,
+    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
   },
   cover: {
-    aspectRatio: 0.85,
     justifyContent: 'flex-end',
+  },
+  coverDefault: {
+    aspectRatio: 1.15,
   },
   coverImage: {
     ...StyleSheet.absoluteFill,
@@ -77,22 +86,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   coverFallback: {
-    fontSize: 48,
+    fontSize: 28,
     fontWeight: '700',
   },
   overlay: {
     ...StyleSheet.absoluteFill,
   },
   coverText: {
-    padding: 14,
-    gap: 4,
+    padding: 8,
+    gap: 2,
   },
   nameOnCover: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '700',
     textShadowColor: 'rgba(0,0,0,0.4)',
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    textShadowRadius: 3,
   },
 });

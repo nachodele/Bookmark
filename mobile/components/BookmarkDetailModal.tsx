@@ -105,7 +105,7 @@ export function BookmarkDetailModal({
                 disabled={busy || !title.trim()}
                 style={[styles.primaryBtn, { backgroundColor: colors.accent, opacity: busy ? 0.7 : 1 }]}
               >
-                <Text style={styles.primaryBtnText}>{busy ? 'Saving...' : 'Save changes'}</Text>
+                <Text style={[styles.primaryBtnText, { color: colors.onAccent }]}>{busy ? 'Saving...' : 'Save changes'}</Text>
               </Pressable>
             </View>
           ) : (
@@ -194,7 +194,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   primaryBtn: { borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
-  primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  primaryBtnText: { fontSize: 16, fontWeight: '600' },
   actions: {
     flexDirection: 'row',
     borderTopWidth: 1,

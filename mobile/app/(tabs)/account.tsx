@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -18,6 +18,8 @@ import { PasswordInput } from '@/components/PasswordInput';
 import { InfoModal } from '@/components/InfoModal';
 import { Screen } from '@/components/Screen';
 import { ABOUT, FAQ, SUPPORT } from '@/lib/content/info';
+import { setOnboardingPending } from '@/lib/onboarding';
+import { supabase } from '@/lib/supabase/client';
 
 type InfoView = 'about' | 'faq' | 'support' | null;
 
@@ -64,6 +66,13 @@ export default function AccountScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [infoView, setInfoView] = useState<InfoView>(null);
+  const [goHomeAfterAuth, setGoHomeAfterAuth] = useState(false);
+
+  useEffect(() => {
+    if (!goHomeAfterAuth || !user) return;
+    setGoHomeAfterAuth(false);
+    router.replace('/');
+  }, [goHomeAfterAuth, user]);
 
   const toggleAuthMode = () => {
     setIsSignUp((v) => !v);
@@ -92,9 +101,19 @@ export default function AccountScreen() {
     if (error) {
       setMessage(error);
     } else if (isSignUp) {
-      setMessage('Account created. Check your email if confirmation is required.');
-      setEmailConfirm('');
-      setPasswordConfirm('');
+      await setOnboardingPending();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        setGoHomeAfterAuth(true);
+      } else {
+        setMessage('Account created. Check your email to confirm, then sign in.');
+        setIsSignUp(false);
+        setPassword('');
+        setPasswordConfirm('');
+        setEmailConfirm('');
+      }
+    } else {
+      setGoHomeAfterAuth(true);
     }
     setSubmitting(false);
   };
@@ -176,7 +195,7 @@ export default function AccountScreen() {
               { backgroundColor: colors.accent, opacity: pressed || submitting ? 0.85 : 1 },
             ]}
           >
-            <Text style={styles.primaryButtonText}>
+            <Text style={[styles.primaryButtonText, { color: colors.onAccent }]}>
               {submitting ? 'Please wait...' : isSignUp ? 'Create account' : 'Sign in'}
             </Text>
           </Pressable>
@@ -188,7 +207,7 @@ export default function AccountScreen() {
           </Pressable>
 
           {message ? (
-            <Text style={[styles.message, { color: colors.danger }]}>{message}</Text>
+            <Text style={[styles.message, { color: colors.text }]}>{message}</Text>
           ) : null}
         </ScrollView>
       </Screen>
@@ -264,11 +283,11 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 16, textAlign: 'center', marginBottom: 16 },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16 },
   primaryButton: { borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
-  primaryButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  primaryButtonText: { fontSize: 16, fontWeight: '600' },
   link: { textAlign: 'center', marginTop: 8, fontSize: 15, fontWeight: '600' },
   message: { textAlign: 'center', marginTop: 8, fontSize: 14 },
   hint: { fontSize: 13, lineHeight: 18, marginTop: -4 },
-  loggedIn: { padding: 20, paddingBottom: 40, gap: 12 },
+  loggedIn: { padding: 20, paddingTop: 48, paddingBottom: 40, gap: 12 },
   profileCard: {
     flexDirection: 'row',
     alignItems: 'center',
