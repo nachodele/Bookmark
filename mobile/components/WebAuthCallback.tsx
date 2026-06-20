@@ -28,6 +28,10 @@ export function WebAuthCallback() {
 
       if (result.ok) {
         setState('success');
+        setTimeout(() => {
+          setState('idle');
+          router.replace('/');
+        }, 1200);
         return;
       }
 
@@ -58,17 +62,8 @@ export function WebAuthCallback() {
               </View>
               <Text style={[styles.title, { color: colors.text }]}>Account verified!</Text>
               <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-                Your email is confirmed. Sign in to start using Bookmark.
+                You're signed in. Opening Bookmark…
               </Text>
-              <Pressable
-                onPress={() => {
-                  setState('idle');
-                  router.replace('/account');
-                }}
-                style={[styles.button, { backgroundColor: colors.accent }]}
-              >
-                <Text style={[styles.buttonText, { color: colors.onAccent }]}>Sign in</Text>
-              </Pressable>
             </>
           ) : null}
 

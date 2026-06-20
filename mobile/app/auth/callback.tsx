@@ -35,6 +35,7 @@ export default function AuthCallbackScreen() {
 
         if (result.ok) {
           setState('success');
+          setTimeout(() => router.replace('/'), 1200);
           return;
         }
 
@@ -65,17 +66,8 @@ export default function AuthCallbackScreen() {
           </View>
           <Text style={[styles.title, { color: colors.text }]}>Account verified!</Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            Your email is confirmed. Open Bookmark and sign in to get started.
+            You're signed in. Opening Bookmark…
           </Text>
-          <Pressable
-            onPress={() => router.replace('/account')}
-            style={({ pressed }) => [
-              styles.button,
-              { backgroundColor: colors.accent, opacity: pressed ? 0.9 : 1 },
-            ]}
-          >
-            <Text style={[styles.buttonText, { color: colors.onAccent }]}>Open Bookmark</Text>
-          </Pressable>
         </>
       ) : null}
 

@@ -106,7 +106,7 @@ export default function AccountScreen() {
       if (session) {
         setGoHomeAfterAuth(true);
       } else {
-        setMessage('Account created. Check your email to confirm, then sign in.');
+        setMessage('Account created. Check your email to confirm your account.');
         setIsSignUp(false);
         setPassword('');
         setPasswordConfirm('');
