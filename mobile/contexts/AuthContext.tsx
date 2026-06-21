@@ -12,6 +12,8 @@ import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase/client';
 import { formatAuthError } from '@/lib/utils/auth';
 import { getAuthRedirectUrl } from '@/lib/auth/redirect';
+import { clearPasswordSetupRequired } from '@/lib/auth/password-setup';
+import { signInWithOAuthProvider, type OAuthProvider, type OAuthSignInResult } from '@/lib/auth/oauth';
 
 type AuthContextValue = {
   user: User | null;
@@ -19,6 +21,8 @@ type AuthContextValue = {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string) => Promise<{ error: string | null }>;
+  signInWithOAuth: (provider: OAuthProvider) => Promise<OAuthSignInResult>;
+  refreshSession: () => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -75,9 +79,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: null };
   }, []);
 
+  const signInWithOAuth = useCallback(async (provider: OAuthProvider) => {
+    const result = await signInWithOAuthProvider(provider);
+    if (result.user) {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        setSession(data.session);
+      }
+    }
+    return result;
+  }, []);
+
+  const refreshSession = useCallback(async () => {
+    const { data, error } = await supabase.auth.refreshSession();
+    if (data.session) {
+      setSession(data.session);
+      return;
+    }
+
+    const { data: userData } = await supabase.auth.getUser();
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!error && userData.user && sessionData.session) {
+      setSession({ ...sessionData.session, user: userData.user });
+    } else if (sessionData.session) {
+      setSession(sessionData.session);
+    }
+  }, []);
+
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     await AsyncStorage.removeItem('pending_share');
+    await clearPasswordSetupRequired();
   }, []);
 
   const value = useMemo(
@@ -87,9 +119,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       signIn,
       signUp,
+      signInWithOAuth,
+      refreshSession,
       signOut,
     }),
-    [session, loading, signIn, signUp, signOut],
+    [session, loading, signIn, signUp, signInWithOAuth, refreshSession, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

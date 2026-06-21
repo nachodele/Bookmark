@@ -23,6 +23,7 @@ import { SearchBar } from '@/components/SearchBar';
 import { fetchBoards, filterBoardsByName } from '@/lib/api/boards';
 import { getGuideSteps, GUIDE } from '@/lib/content/info';
 import { ONBOARDING_PENDING_KEY, clearOnboardingPending, type OnboardingStep } from '@/lib/onboarding';
+import { isPasswordSetupRequired } from '@/lib/auth/password-setup';
 import { PENDING_SHARE_KEY } from '@/lib/share/constants';
 import type { Board, BoardWithCount } from '@/lib/supabase/database.types';
 import { useAuth } from '@/contexts/AuthContext';
@@ -76,12 +77,15 @@ export default function HomeScreen() {
   }, [user, isOnline]);
 
   const checkOnboarding = useCallback(async () => {
+    if (!user) return;
+    if (await isPasswordSetupRequired()) return;
+
     const pending = await AsyncStorage.getItem(ONBOARDING_PENDING_KEY);
     if (pending === '1') {
       setOnboardingStep(0);
       setOnboardingVisible(true);
     }
-  }, []);
+  }, [user]);
 
   const finishOnboarding = useCallback(async () => {
     await clearOnboardingPending();

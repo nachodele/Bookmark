@@ -4,13 +4,31 @@ const path = require('path');
 
 const distDir = path.join(__dirname, '..', 'dist');
 const indexPath = path.join(distDir, 'index.html');
-const fontSrc = path.join(__dirname, '..', 'public', 'assets', 'fonts', 'Ionicons.ttf');
+const publicDir = path.join(__dirname, '..', 'public');
+const fontSrc = path.join(publicDir, 'assets', 'fonts', 'Ionicons.ttf');
 const fontDest = path.join(distDir, 'assets', 'fonts', 'Ionicons.ttf');
+
+function copyPublicAssets() {
+  if (!fs.existsSync(publicDir)) return;
+
+  for (const entry of fs.readdirSync(publicDir, { withFileTypes: true })) {
+    const src = path.join(publicDir, entry.name);
+    const dest = path.join(distDir, entry.name);
+    if (entry.isDirectory()) {
+      fs.cpSync(src, dest, { recursive: true });
+    } else {
+      fs.copyFileSync(src, dest);
+    }
+  }
+  console.log('Copied public/ assets to dist/');
+}
 
 if (!fs.existsSync(indexPath)) {
   console.warn('[Bookmark] dist/index.html not found — run expo export first');
   process.exit(1);
 }
+
+copyPublicAssets();
 
 if (fs.existsSync(fontSrc)) {
   fs.mkdirSync(path.dirname(fontDest), { recursive: true });

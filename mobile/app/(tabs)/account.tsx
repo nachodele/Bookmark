@@ -18,6 +18,8 @@ import { PasswordInput } from '@/components/PasswordInput';
 import { InfoModal } from '@/components/InfoModal';
 import { Screen } from '@/components/Screen';
 import { ABOUT, FAQ, SUPPORT } from '@/lib/content/info';
+import { SocialAuthButtons } from '@/components/SocialAuthButtons';
+import { finishOAuthSignIn } from '@/lib/auth/oauth-flow';
 import { setOnboardingPending } from '@/lib/onboarding';
 import { supabase } from '@/lib/supabase/client';
 
@@ -56,7 +58,7 @@ function MenuRow({
 }
 
 export default function AccountScreen() {
-  const { user, loading, signIn, signUp, signOut } = useAuth();
+  const { user, loading, signIn, signUp, signInWithOAuth, signOut } = useAuth();
   const { colors } = useTheme();
   const [email, setEmail] = useState('');
   const [emailConfirm, setEmailConfirm] = useState('');
@@ -79,6 +81,30 @@ export default function AccountScreen() {
     setEmailConfirm('');
     setPasswordConfirm('');
     setMessage(null);
+  };
+
+  const handleOAuth = async (provider: 'google' | 'apple') => {
+    setSubmitting(true);
+    setMessage(null);
+
+    const result = await signInWithOAuth(provider);
+
+    if (result.error) {
+      setMessage(result.error);
+      setSubmitting(false);
+      return;
+    }
+
+    if (result.cancelled) {
+      setSubmitting(false);
+      return;
+    }
+
+    if (result.user) {
+      await finishOAuthSignIn(result.user);
+    }
+
+    setSubmitting(false);
   };
 
   const handleSubmit = async () => {
@@ -104,7 +130,12 @@ export default function AccountScreen() {
       await setOnboardingPending();
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        setGoHomeAfterAuth(true);
+        await signOut();
+        setMessage('Account created. Sign in to get started.');
+        setIsSignUp(false);
+        setPassword('');
+        setPasswordConfirm('');
+        setEmailConfirm('');
       } else {
         setMessage('Account created. Check your email to confirm your account.');
         setIsSignUp(false);
@@ -144,6 +175,8 @@ export default function AccountScreen() {
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             Save and organize links with AI
           </Text>
+
+          <SocialAuthButtons disabled={submitting} onPress={handleOAuth} />
 
           <TextInput
             value={email}

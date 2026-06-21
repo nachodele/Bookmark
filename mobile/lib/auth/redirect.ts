@@ -12,30 +12,20 @@ export function getWebAppUrl(): string {
 }
 
 /**
- * Email confirmation links open in the browser — always use the live PWA root `/`.
- * Static hosting serves a single index.html; deep paths like /auth/callback 404 on Pages.
+ * Email confirmation opens a static page in the browser — no app load, no auto sign-in.
+ * Add this URL to Supabase → Authentication → Redirect URLs.
  */
 export function getAuthRedirectUrl(): string {
   if (isWeb && typeof window !== 'undefined') {
-    return `${window.location.origin}/`;
+    return `${window.location.origin}/verified.html`;
   }
-  return `${getWebAppUrl()}/`;
+  return `${getWebAppUrl()}/verified.html`;
 }
 
-/** Deep link when the installed app handles auth (optional). */
-export function getNativeAuthRedirectUrl(): string {
+/** OAuth (Google / Apple) returns here — PWA route or native deep link. */
+export function getOAuthRedirectUrl(): string {
+  if (isWeb && typeof window !== 'undefined') {
+    return `${window.location.origin}/auth/callback`;
+  }
   return Linking.createURL('auth/callback');
-}
-
-export function urlHasAuthCallbackParams(href: string): boolean {
-  try {
-    const parsed = new URL(href.replace(/^bookmark:\/\//, 'https://bookmark.app/'));
-    if (parsed.searchParams.get('code')) return true;
-    if (parsed.searchParams.get('error')) return true;
-    if (parsed.searchParams.get('error_description')) return true;
-    const hash = parsed.hash.replace(/^#/, '');
-    return hash.includes('access_token=') || hash.includes('type=signup') || hash.includes('type=email');
-  } catch {
-    return href.includes('code=') || href.includes('access_token=');
-  }
 }

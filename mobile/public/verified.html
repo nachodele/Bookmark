@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bookmark — Email verified</title>
+    <meta name="robots" content="noindex" />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        background: #c8e6f5;
+        color: #1a2b33;
+      }
+      .card {
+        width: 100%;
+        max-width: 400px;
+        background: #ffffff;
+        border-radius: 20px;
+        padding: 36px 28px;
+        text-align: center;
+        box-shadow: 0 8px 32px rgba(26, 95, 122, 0.12);
+      }
+      .icon {
+        width: 72px;
+        height: 72px;
+        margin: 0 auto 20px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 36px;
+        line-height: 1;
+      }
+      .icon.ok {
+        background: rgba(26, 95, 122, 0.12);
+        color: #1a5f7a;
+      }
+      .icon.err {
+        background: rgba(180, 60, 60, 0.1);
+        color: #b43c3c;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #1a2b33;
+      }
+      p {
+        margin: 0;
+        font-size: 1rem;
+        line-height: 1.55;
+        color: #4a6572;
+      }
+      .brand {
+        margin-top: 28px;
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: #1a5f7a;
+        letter-spacing: 0.02em;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card" id="card">
+      <div class="icon ok" id="icon">✓</div>
+      <h1 id="title">Verified!</h1>
+      <p id="message">Go back to Bookmark and sign in to start using it.</p>
+      <p class="brand">Bookmark</p>
+    </div>
+    <script>
+      (function () {
+        var params = new URLSearchParams(window.location.search);
+        var hash = window.location.hash.replace(/^#/, '');
+        var hashParams = new URLSearchParams(hash);
+        var error =
+          params.get('error_description') ||
+          params.get('error') ||
+          hashParams.get('error_description') ||
+          hashParams.get('error');
+
+        if (error) {
+          document.getElementById('icon').className = 'icon err';
+          document.getElementById('icon').textContent = '!';
+          document.getElementById('title').textContent = 'Verification failed';
+          document.getElementById('message').textContent =
+            error + ' You can try signing in — your account may already be verified.';
+        }
+
+        // Clean URL so refreshing does not re-process auth params.
+        if (window.history.replaceState) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      })();
+    </script>
+  </body>
+</html>

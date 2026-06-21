@@ -1,14 +1,14 @@
 import * as Linking from 'expo-linking';
-import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { Screen } from '@/components/Screen';
-import { createSessionFromAuthUrl } from '@/lib/auth/session-from-url';
+import { resolveOAuthCallback } from '@/lib/auth/oauth-session';
 import { isWeb } from '@/lib/platform';
 import { useTheme } from '@/contexts/ThemeContext';
 
-type CallbackState = 'loading' | 'success' | 'error';
+type CallbackState = 'loading' | 'error';
 
 export default function AuthCallbackScreen() {
   const { colors } = useTheme();
@@ -16,81 +16,72 @@ export default function AuthCallbackScreen() {
   const [detail, setDetail] = useState<string | null>(null);
 
   useEffect(() => {
-    const run = async () => {
-      try {
-        const initial = await Linking.getInitialURL();
-        const href = isWeb && typeof window !== 'undefined' ? window.location.href : initial;
+    let cancelled = false;
 
-        if (!href || !href.includes('auth/callback')) {
-          setState('error');
-          setDetail('This verification link is invalid or has expired.');
-          return;
-        }
-
-        const result = await createSessionFromAuthUrl(href);
-
-        if (isWeb && typeof window !== 'undefined') {
-          window.history.replaceState({}, '', '/auth/callback');
-        }
-
-        if (result.ok) {
-          setState('success');
-          setTimeout(() => router.replace('/'), 1200);
-          return;
-        }
-
-        setState('error');
-        setDetail(result.error ?? 'Could not verify your account.');
-      } catch (error) {
-        setState('error');
-        setDetail(error instanceof Error ? error.message : 'Something went wrong.');
+    const run = async (href: string | null) => {
+      let result = await resolveOAuthCallback(href);
+      if (!result.ok) {
+        result = await resolveOAuthCallback(href);
       }
+      if (cancelled) return;
+      if (result.ok) return;
+      setDetail(result.error);
+      setState('error');
     };
 
-    void run();
+    if (isWeb && typeof window !== 'undefined') {
+      void run(window.location.href);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void Linking.getInitialURL().then((url) => {
+      if (url) void run(url);
+    });
+
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      void run(url);
+    });
+
+    const fallback = setTimeout(() => {
+      void run(null);
+    }, 600);
+
+    return () => {
+      cancelled = true;
+      subscription.remove();
+      clearTimeout(fallback);
+    };
   }, []);
+
+  if (state === 'loading') {
+    return (
+      <Screen style={styles.centered}>
+        <ActivityIndicator size="large" color={colors.accent} />
+        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Signing you in…</Text>
+      </Screen>
+    );
+  }
 
   return (
     <Screen style={styles.centered}>
-      {state === 'loading' ? (
-        <>
-          <ActivityIndicator size="large" color={colors.accent} />
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Verifying your email…</Text>
-        </>
-      ) : null}
-
-      {state === 'success' ? (
-        <>
-          <View style={[styles.iconCircle, { backgroundColor: colors.accentMuted }]}>
-            <Ionicons name="checkmark-circle" size={56} color={colors.accent} />
-          </View>
-          <Text style={[styles.title, { color: colors.text }]}>Account verified!</Text>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            You're signed in. Opening Bookmark…
-          </Text>
-        </>
-      ) : null}
-
-      {state === 'error' ? (
-        <>
-          <View style={[styles.iconCircle, { backgroundColor: colors.surfaceBorder }]}>
-            <Ionicons name="alert-circle-outline" size={56} color={colors.textSecondary} />
-          </View>
-          <Text style={[styles.title, { color: colors.text }]}>Verification failed</Text>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            {detail ?? 'Try signing in — your account may already be verified.'}
-          </Text>
-          <Pressable
-            onPress={() => router.replace('/account')}
-            style={({ pressed }) => [
-              styles.button,
-              { backgroundColor: colors.accent, opacity: pressed ? 0.9 : 1 },
-            ]}
-          >
-            <Text style={[styles.buttonText, { color: colors.onAccent }]}>Go to sign in</Text>
-          </Pressable>
-        </>
-      ) : null}
+      <View style={[styles.iconCircle, { backgroundColor: colors.surfaceBorder }]}>
+        <Ionicons name="alert-circle-outline" size={56} color={colors.textSecondary} />
+      </View>
+      <Text style={[styles.title, { color: colors.text }]}>Sign in failed</Text>
+      <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+        {detail ?? 'Something went wrong. Please try again.'}
+      </Text>
+      <Pressable
+        onPress={() => router.replace('/account')}
+        style={({ pressed }) => [
+          styles.button,
+          { backgroundColor: colors.accent, opacity: pressed ? 0.9 : 1 },
+        ]}
+      >
+        <Text style={[styles.buttonText, { color: colors.onAccent }]}>Back to sign in</Text>
+      </Pressable>
     </Screen>
   );
 }

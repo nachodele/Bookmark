@@ -3,10 +3,10 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import { isPasswordSetupRequired } from '@/lib/auth/password-setup';
 import { NetworkProvider } from '@/contexts/NetworkContext';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import { PwaBootstrap } from '@/components/PwaBootstrap';
-import { WebAuthCallback } from '@/components/WebAuthCallback';
 import { WebShareCapture } from '@/components/WebShareCapture';
 import { ShareToastBanner } from '@/components/ShareToastBanner';
 import { ShareReviewModal } from '@/components/ShareReviewModal';
@@ -34,6 +34,7 @@ function RootNavigator() {
     const onAccount = segmentList.includes('account');
     const onAuthCallback =
       segmentList[0] === 'auth' && segmentList[1] === 'callback';
+    const onSetPassword = segmentList[0] === 'set-password';
 
     if (!user) {
       if (!onAccount && !onAuthCallback) {
@@ -41,6 +42,15 @@ function RootNavigator() {
       }
       return;
     }
+
+    const enforcePasswordSetup = async () => {
+      const required = await isPasswordSetupRequired();
+      if (required && !onSetPassword && !onAuthCallback) {
+        router.replace('/set-password');
+      }
+    };
+
+    void enforcePasswordSetup();
   }, [user, loading, segments, router]);
 
   if (loading) {
@@ -78,6 +88,12 @@ function RootNavigator() {
           }}
         />
         <Stack.Screen
+          name="set-password"
+          options={{
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
           name="auth/callback"
           options={{
             headerShown: false,
@@ -104,7 +120,6 @@ export default function RootLayout() {
       <ThemeProvider>
         <NetworkProvider>
           <AuthProvider>
-            <WebAuthCallback />
             <WebShareCapture />
             <RootNavigator />
           </AuthProvider>
