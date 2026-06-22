@@ -39,8 +39,8 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   },
   {
     id: 'link',
-    title: 'Add a link manually',
-    body: 'Use Add link when you want full control: you write the title, description, and pick the board. No AI involved.',
+    title: 'Add a link',
+    body: 'Tap Add link, paste a URL, then Analyze with AI. You review board, title, and thumbnail before saving — same flow as sharing from another app.',
     action: 'open_link',
     actionLabel: 'Try Add link',
   },

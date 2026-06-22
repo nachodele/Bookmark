@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@/contexts/AuthContext';
 import { useIsOnline } from '@/contexts/NetworkContext';
@@ -23,6 +23,10 @@ export type ShareReviewDraft = {
   sourceApp: string;
 };
 
+export type ShareReviewOptions = {
+  onSaved?: () => void;
+};
+
 export function useShareReviewFlow(onSaved?: () => void) {
   const { user, session } = useAuth();
   const isOnline = useIsOnline();
@@ -30,6 +34,7 @@ export function useShareReviewFlow(onSaved?: () => void) {
   const [reviewVisible, setReviewVisible] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewDraft, setReviewDraft] = useState<ShareReviewDraft | null>(null);
+  const reviewOnSavedRef = useRef<(() => void) | undefined>(undefined);
 
   const showToast = useCallback((message: string, type: ShareToast['type']) => {
     setToast({ message, type });
@@ -40,12 +45,15 @@ export function useShareReviewFlow(onSaved?: () => void) {
     setReviewVisible(false);
     setReviewLoading(false);
     setReviewDraft(null);
+    reviewOnSavedRef.current = undefined;
   }, []);
 
   const openShareReview = useCallback(
-    async (url: string, title = '') => {
+    async (url: string, title = '', options?: ShareReviewOptions) => {
       const trimmedUrl = url.trim();
       if (!trimmedUrl) return;
+
+      reviewOnSavedRef.current = options?.onSaved;
 
       if (!user) {
         await AsyncStorage.setItem(PENDING_SHARE_KEY, JSON.stringify({ url: trimmedUrl, title }));
@@ -109,6 +117,8 @@ export function useShareReviewFlow(onSaved?: () => void) {
     (boardName: string) => {
       showToast(`Saved to ${boardName}`, 'success');
       onSaved?.();
+      reviewOnSavedRef.current?.();
+      reviewOnSavedRef.current = undefined;
     },
     [showToast, onSaved],
   );

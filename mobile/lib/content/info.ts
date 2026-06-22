@@ -27,7 +27,7 @@ export const GUIDE = {
     {
       title: '3. Add links',
       body:
-        'Add link: you write the URL, title, description, and pick the board — no AI.\n\nShare Sheet (Android app): Share → Bookmark — AI classifies automatically.',
+        'Add link: paste a URL and tap Analyze with AI — review board, title, and thumbnail before saving.\n\nShare Sheet: Share → Bookmark from any app — same AI review flow.',
     },
     {
       title: '4. Review and adjust',
@@ -49,7 +49,7 @@ export function getGuideSteps() {
 export const FAQ = [
   {
     q: 'How do I save a link?',
-    a: 'Tap Share in any app, choose Bookmark, and we\'ll classify and save it automatically. You must be signed in.',
+    a: 'Tap Add link and paste a URL, or Share from any app and choose Bookmark. AI suggests board, title, and thumbnail — you review before saving. You must be signed in.',
   },
   {
     q: 'How does AI classification work?',

@@ -22,7 +22,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useShareReview } from '@/contexts/ShareReviewContext';
 import { useIsOnline } from '@/contexts/NetworkContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { isWeb } from '@/lib/platform';
 import {
   deleteBoard,
   fetchBoardBookmarks,
@@ -32,7 +31,7 @@ import {
 import { uploadBoardCover } from '@/lib/api/storage';
 import { filterBookmarksLocally } from '@/lib/api/bookmarks';
 import { supabase } from '@/lib/supabase/client';
-import type { Bookmark, BookmarkWithBoard, Board } from '@/lib/supabase/database.types';
+import type { Bookmark, BookmarkWithBoard } from '@/lib/supabase/database.types';
 import { useBookmarkActions } from '@/hooks/useBookmarkActions';
 
 export default function BoardDetailScreen() {
@@ -113,11 +112,6 @@ export default function BoardDetailScreen() {
     );
     return filterBookmarksLocally(withBoard, search);
   }, [bookmarks, search, id, boardName]);
-
-  const boardForLink: Board[] = useMemo(
-    () => (user && id ? [{ id, user_id: user.id, name: boardName, cover_url: null, created_at: '' }] : []),
-    [user, id, boardName],
-  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -367,15 +361,8 @@ export default function BoardDetailScreen() {
       {user && id ? (
         <AddLinkModal
           visible={linkModalVisible}
-          userId={user.id}
-          boards={boardForLink}
-          presetBoardId={id}
-          lockBoard={!isWeb}
-          useAiPreview={isWeb}
-          onAiPreview={(url) => void openShareReview(url)}
+          onAnalyze={(url) => void openShareReview(url, '', { onSaved: load })}
           onClose={() => setLinkModalVisible(false)}
-          onSaved={load}
-          onRequestNewBoard={() => setLinkModalVisible(false)}
         />
       ) : null}
     </View>

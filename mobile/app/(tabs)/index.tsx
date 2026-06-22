@@ -24,12 +24,11 @@ import { fetchBoards, filterBoardsByName } from '@/lib/api/boards';
 import { getGuideSteps, GUIDE } from '@/lib/content/info';
 import { ONBOARDING_PENDING_KEY, clearOnboardingPending, type OnboardingStep } from '@/lib/onboarding';
 import { isPasswordSetupRequired } from '@/lib/auth/password-setup';
-import type { Board, BoardWithCount } from '@/lib/supabase/database.types';
+import type { BoardWithCount } from '@/lib/supabase/database.types';
 import { useAuth } from '@/contexts/AuthContext';
 import { useShareReview } from '@/contexts/ShareReviewContext';
 import { useIsOnline } from '@/contexts/NetworkContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { isWeb } from '@/lib/platform';
 import { Redirect, router } from 'expo-router';
 
 const CACHE_KEY = 'boards_cache';
@@ -113,17 +112,6 @@ export default function HomeScreen() {
   const filteredBoards = useMemo(
     () => filterBoardsByName(boards, search),
     [boards, search],
-  );
-
-  const boardList: Board[] = useMemo(
-    () => boards.map(({ id, user_id, name, cover_url, created_at }) => ({
-      id,
-      user_id,
-      name,
-      cover_url,
-      created_at,
-    })),
-    [boards],
   );
 
   const onRefresh = async () => {
@@ -223,7 +211,7 @@ export default function HomeScreen() {
             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
               {search.trim()
                 ? 'Try a different search term'
-                : 'Tap New board to create a category, then Add link to save something manually.'}
+                : 'Tap New board to create a category, then Add link to save with AI.'}
             </Text>
           </View>
         }
@@ -253,20 +241,15 @@ export default function HomeScreen() {
           />
           <AddLinkModal
             visible={linkModalVisible}
-            userId={user.id}
-            boards={boardList}
-            useAiPreview={isWeb}
-            onAiPreview={(url) => void openShareReview(url)}
+            onAnalyze={(url) =>
+              void openShareReview(url, '', {
+                onSaved: async () => {
+                  await load();
+                  if (onboardingStep === 2) advanceOnboardingAfterAction();
+                },
+              })
+            }
             onClose={() => setLinkModalVisible(false)}
-            onSaved={async () => {
-              await load();
-              if (onboardingStep === 2) advanceOnboardingAfterAction();
-            }}
-            onRequestNewBoard={() => {
-              setLinkModalVisible(false);
-              setBoardModalVisible(true);
-              setReopenLinkAfterBoard(true);
-            }}
           />
         </>
       ) : null}
