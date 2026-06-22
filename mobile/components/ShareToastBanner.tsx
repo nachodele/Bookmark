@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '@/contexts/ThemeContext';
-import type { ShareToast } from '@/hooks/useShareHandler';
+import type { ShareToast } from '@/hooks/useShareReviewFlow';
 
 type ShareToastBannerProps = {
   toast: ShareToast | null;

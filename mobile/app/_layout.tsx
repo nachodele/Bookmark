@@ -8,24 +8,15 @@ import { NetworkProvider } from '@/contexts/NetworkContext';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import { PwaBootstrap } from '@/components/PwaBootstrap';
 import { WebShareCapture } from '@/components/WebShareCapture';
-import { ShareToastBanner } from '@/components/ShareToastBanner';
-import { ShareReviewModal } from '@/components/ShareReviewModal';
 import { ShareIntentRoot } from '@/components/ShareIntentRoot';
-import { useShareHandler } from '@/hooks/useShareHandler';
+import { ShareReviewProvider, ShareReviewPendingConsumer } from '@/contexts/ShareReviewContext';
+import { ShareIntentConsumer } from '@/components/ShareIntentConsumer';
 
 function RootNavigator() {
-  const { user, loading, session } = useAuth();
+  const { user, loading } = useAuth();
   const { colors, isDark } = useTheme();
   const segments = useSegments();
   const router = useRouter();
-  const {
-    toast,
-    reviewVisible,
-    reviewLoading,
-    reviewDraft,
-    dismissReview,
-    handleReviewSaved,
-  } = useShareHandler();
 
   useEffect(() => {
     if (loading) return;
@@ -100,15 +91,6 @@ function RootNavigator() {
           }}
         />
       </Stack>
-      <ShareToastBanner toast={toast} />
-      <ShareReviewModal
-        visible={reviewVisible}
-        loading={reviewLoading}
-        draft={reviewDraft}
-        accessToken={session?.access_token ?? null}
-        onClose={dismissReview}
-        onSaved={handleReviewSaved}
-      />
       <PwaBootstrap />
     </>
   );
@@ -121,7 +103,11 @@ export default function RootLayout() {
         <NetworkProvider>
           <AuthProvider>
             <WebShareCapture />
-            <RootNavigator />
+            <ShareReviewProvider>
+              <ShareReviewPendingConsumer />
+              <ShareIntentConsumer />
+              <RootNavigator />
+            </ShareReviewProvider>
           </AuthProvider>
         </NetworkProvider>
       </ThemeProvider>

@@ -27,6 +27,9 @@ type AddLinkModalProps = {
   initialUrl?: string;
   presetBoardId?: string;
   lockBoard?: boolean;
+  /** Web/PWA: URL only → save-bookmark AI preview (same as native share). */
+  useAiPreview?: boolean;
+  onAiPreview?: (url: string) => void;
   onClose: () => void;
   onSaved: () => void;
   onRequestNewBoard: () => void;
@@ -39,6 +42,8 @@ export function AddLinkModal({
   initialUrl = '',
   presetBoardId,
   lockBoard = false,
+  useAiPreview = false,
+  onAiPreview,
   onClose,
   onSaved,
   onRequestNewBoard,
@@ -103,6 +108,13 @@ export function AddLinkModal({
       Alert.alert('Add link', 'Enter a valid URL');
       return;
     }
+
+    if (useAiPreview) {
+      onAiPreview?.(normalizedUrl);
+      onClose();
+      return;
+    }
+
     if (!title.trim() || !description.trim()) {
       Alert.alert('Add link', 'Title and description are required');
       return;
@@ -137,7 +149,14 @@ export function AddLinkModal({
       >
         <View style={[styles.sheet, { backgroundColor: colors.surface }]}>
           <View style={styles.sheetHeader}>
-            <Text style={[styles.title, { color: colors.text }]}>Add link</Text>
+            <View style={styles.headerText}>
+              <Text style={[styles.title, { color: colors.text }]}>Add link</Text>
+              {useAiPreview ? (
+                <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+                  AI will suggest board, title, and thumbnail — edit before saving
+                </Text>
+              ) : null}
+            </View>
             <Pressable onPress={onClose} hitSlop={12}>
               <Ionicons name="close" size={24} color={colors.textSecondary} />
             </Pressable>
@@ -162,6 +181,8 @@ export function AddLinkModal({
               </Pressable>
             ) : null}
 
+            {!useAiPreview ? (
+              <>
             <Text style={[styles.label, { color: colors.textSecondary }]}>Title</Text>
             <TextInput
               value={title}
@@ -254,6 +275,8 @@ export function AddLinkModal({
                 <Text style={{ color: colors.accent, fontWeight: '600' }}>Create new board</Text>
               </Pressable>
             ) : null}
+              </>
+            ) : null}
 
             <Pressable
               onPress={handleSave}
@@ -266,7 +289,9 @@ export function AddLinkModal({
               {saving ? (
                 <ActivityIndicator color={colors.onAccent} />
               ) : (
-                <Text style={[styles.saveBtnText, { color: colors.onAccent }]}>Save link</Text>
+                <Text style={[styles.saveBtnText, { color: colors.onAccent }]}>
+                  {useAiPreview ? 'Analyze with AI' : 'Save link'}
+                </Text>
               )}
             </Pressable>
           </ScrollView>
@@ -294,13 +319,16 @@ const styles = StyleSheet.create({
   },
   sheetHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: 20,
     paddingBottom: 8,
+    gap: 12,
   },
+  headerText: { flex: 1, gap: 4 },
   title: { fontSize: 22, fontWeight: '700' },
+  subtitle: { fontSize: 14, lineHeight: 20 },
   form: { padding: 20, paddingTop: 8, gap: 8, paddingBottom: 32 },
   label: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 6 },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16 },

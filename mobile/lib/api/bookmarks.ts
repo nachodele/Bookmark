@@ -55,7 +55,7 @@ export async function deleteBookmark(bookmarkId: string, userId: string): Promis
 export async function updateBookmark(
   bookmarkId: string,
   userId: string,
-  updates: { title?: string; description?: string; board_id?: string },
+  updates: { title?: string; description?: string; board_id?: string; thumbnail_url?: string | null },
 ): Promise<Bookmark> {
   const { data, error } = await supabase
     .from('bookmarks')

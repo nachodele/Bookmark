@@ -19,8 +19,10 @@ import { AddLinkModal } from '@/components/AddLinkModal';
 import { BookmarkCard } from '@/components/BookmarkCard';
 import { SearchBar } from '@/components/SearchBar';
 import { useAuth } from '@/contexts/AuthContext';
+import { useShareReview } from '@/contexts/ShareReviewContext';
 import { useIsOnline } from '@/contexts/NetworkContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { isWeb } from '@/lib/platform';
 import {
   deleteBoard,
   fetchBoardBookmarks,
@@ -51,6 +53,7 @@ export default function BoardDetailScreen() {
   const [coverUri, setCoverUri] = useState<string | null>(null);
   const [coverBusy, setCoverBusy] = useState(false);
   const [linkModalVisible, setLinkModalVisible] = useState(false);
+  const { openShareReview } = useShareReview();
 
   const load = useCallback(async () => {
     if (!user || !id) return;
@@ -367,7 +370,9 @@ export default function BoardDetailScreen() {
           userId={user.id}
           boards={boardForLink}
           presetBoardId={id}
-          lockBoard
+          lockBoard={!isWeb}
+          useAiPreview={isWeb}
+          onAiPreview={(url) => void openShareReview(url)}
           onClose={() => setLinkModalVisible(false)}
           onSaved={load}
           onRequestNewBoard={() => setLinkModalVisible(false)}

@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -18,7 +17,8 @@ import { fetchBoards } from '@/lib/api/boards';
 import { confirmShareBookmark, type ShareConfirmPayload } from '@/lib/api/share';
 import type { Board } from '@/lib/supabase/database.types';
 import { useTheme } from '@/contexts/ThemeContext';
-import type { ShareReviewDraft } from '@/hooks/useShareHandler';
+import type { ShareReviewDraft } from '@/hooks/useShareReviewFlow';
+import { ThumbnailEditor } from '@/components/ThumbnailEditor';
 
 type ShareReviewModalProps = {
   visible: boolean;
@@ -45,6 +45,7 @@ export function ShareReviewModal({
   const [suggestedBoardName, setSuggestedBoardName] = useState('');
   const [useSuggestedBoard, setUseSuggestedBoard] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible || !draft?.userId) return;
@@ -68,6 +69,7 @@ export function ShareReviewModal({
     setTitle(draft.title);
     setDescription(draft.description);
     setSuggestedBoardName(draft.boardName);
+    setThumbnailUrl(draft.thumbnailUrl);
     if (draft.boardId) {
       setBoardId(draft.boardId);
       setUseSuggestedBoard(false);
@@ -97,7 +99,7 @@ export function ShareReviewModal({
       title: trimmedTitle,
       description: trimmedDescription,
       source_app: draft.sourceApp,
-      thumbnail_url: draft.thumbnailUrl,
+      thumbnail_url: thumbnailUrl,
     };
 
     if (boardId && !useSuggestedBoard) {
@@ -146,8 +148,14 @@ export function ShareReviewModal({
             </View>
           ) : draft ? (
             <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
-              {draft.thumbnailUrl ? (
-                <Image source={{ uri: draft.thumbnailUrl }} style={styles.thumbnail} />
+              {draft.userId ? (
+                <ThumbnailEditor
+                  userId={draft.userId}
+                  linkUrl={draft.url}
+                  thumbnailUrl={thumbnailUrl}
+                  onChange={setThumbnailUrl}
+                  colors={colors}
+                />
               ) : null}
 
               <Text style={[styles.label, { color: colors.textSecondary }]}>URL</Text>
@@ -308,7 +316,6 @@ const styles = StyleSheet.create({
   loadingWrap: { alignItems: 'center', justifyContent: 'center', padding: 48, gap: 16 },
   loadingText: { fontSize: 15, textAlign: 'center' },
   form: { padding: 20, paddingTop: 8, gap: 8, paddingBottom: 32 },
-  thumbnail: { width: '100%', height: 140, borderRadius: 14, marginBottom: 4 },
   label: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 6 },
   urlText: { fontSize: 13, lineHeight: 18, marginBottom: 4 },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16 },

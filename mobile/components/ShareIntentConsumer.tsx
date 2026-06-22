@@ -1,13 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { useShareIntentContext } from 'expo-share-intent';
-import { useShareReviewFlow } from '@/hooks/useShareReviewFlow';
+import { useShareReview } from '@/contexts/ShareReviewContext';
 import { extractUrl } from '@/lib/utils/source';
 
-export type { ShareReviewDraft, ShareToast } from '@/hooks/useShareReviewFlow';
-
-export function useShareHandler(onSaved?: () => void) {
+/** Native share sheet → AI preview pipeline. */
+export function ShareIntentConsumer() {
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
-  const flow = useShareReviewFlow(onSaved);
+  const { openShareReview } = useShareReview();
   const processingRef = useRef(false);
 
   useEffect(() => {
@@ -24,15 +23,11 @@ export function useShareHandler(onSaved?: () => void) {
     const shareText = (shareIntent.meta?.title ?? shareIntent.text ?? '').trim();
     const title = shareText.replace(url, '').trim() || shareIntent.meta?.title?.trim() || '';
 
-    flow.openShareReview(url, title).finally(() => {
+    openShareReview(url, title).finally(() => {
       resetShareIntent();
       processingRef.current = false;
     });
-  }, [hasShareIntent, shareIntent, flow.openShareReview, resetShareIntent]);
+  }, [hasShareIntent, shareIntent, openShareReview, resetShareIntent]);
 
-  useEffect(() => {
-    void flow.consumePendingShare();
-  }, [flow.consumePendingShare]);
-
-  return flow;
+  return null;
 }

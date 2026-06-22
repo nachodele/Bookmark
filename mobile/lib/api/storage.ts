@@ -19,6 +19,21 @@ export async function uploadBoardCover(
   userId: string,
   localUri: string,
 ): Promise<string> {
+  return uploadUserImage(userId, localUri, 'covers');
+}
+
+export async function uploadBookmarkThumbnail(
+  userId: string,
+  localUri: string,
+): Promise<string> {
+  return uploadUserImage(userId, localUri, 'thumbnails');
+}
+
+async function uploadUserImage(
+  userId: string,
+  localUri: string,
+  kind: 'covers' | 'thumbnails',
+): Promise<string> {
   const response = await fetch(localUri);
   if (!response.ok) {
     throw new Error(`Could not read image (${response.status})`);
@@ -28,7 +43,7 @@ export async function uploadBoardCover(
   const fileBody = await response.arrayBuffer();
   const contentType = inferImageContentType(localUri);
   const ext = extensionForContentType(contentType);
-  const path = `${userId}/${Date.now()}.${ext}`;
+  const path = `${userId}/${kind}/${Date.now()}.${ext}`;
 
   const { error } = await supabase.storage
     .from('board-covers')

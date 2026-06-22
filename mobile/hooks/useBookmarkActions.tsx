@@ -47,7 +47,11 @@ export function useBookmarkActions(onChanged?: () => void) {
     closeDetail();
   };
 
-  const handleSave = async (updates: { title: string; description: string }) => {
+  const handleSave = async (updates: {
+    title: string;
+    description: string;
+    thumbnail_url?: string | null;
+  }) => {
     if (!user || !selected || !requireOnline()) return;
     await updateBookmark(selected.id, user.id, updates);
     setSelected((prev) => (prev ? { ...prev, ...updates } : prev));
@@ -75,6 +79,7 @@ export function useBookmarkActions(onChanged?: () => void) {
       <BookmarkDetailModal
         visible={Boolean(selected) && !pickerVisible}
         bookmark={selected}
+        userId={user?.id ?? null}
         onClose={closeDetail}
         onMove={openMovePicker}
         onSave={handleSave}

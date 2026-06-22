@@ -24,9 +24,9 @@ import { fetchBoards, filterBoardsByName } from '@/lib/api/boards';
 import { getGuideSteps, GUIDE } from '@/lib/content/info';
 import { ONBOARDING_PENDING_KEY, clearOnboardingPending, type OnboardingStep } from '@/lib/onboarding';
 import { isPasswordSetupRequired } from '@/lib/auth/password-setup';
-import { PENDING_SHARE_KEY } from '@/lib/share/constants';
 import type { Board, BoardWithCount } from '@/lib/supabase/database.types';
 import { useAuth } from '@/contexts/AuthContext';
+import { useShareReview } from '@/contexts/ShareReviewContext';
 import { useIsOnline } from '@/contexts/NetworkContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { isWeb } from '@/lib/platform';
@@ -49,7 +49,7 @@ export default function HomeScreen() {
   const [search, setSearch] = useState('');
   const [boardModalVisible, setBoardModalVisible] = useState(false);
   const [linkModalVisible, setLinkModalVisible] = useState(false);
-  const [pendingLinkUrl, setPendingLinkUrl] = useState('');
+  const { openShareReview } = useShareReview();
   const [guideVisible, setGuideVisible] = useState(false);
   const [onboardingVisible, setOnboardingVisible] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0);
@@ -98,28 +98,12 @@ export default function HomeScreen() {
     return Math.min(Math.round(cardWidth * 0.68), Math.floor(maxHeight));
   }, [screenWidth, screenHeight]);
 
-  const loadPendingShareUrl = useCallback(async () => {
-    if (!isWeb) return;
-    const raw = await AsyncStorage.getItem(PENDING_SHARE_KEY);
-    if (!raw) return;
-    try {
-      const pending = JSON.parse(raw) as { url: string };
-      if (pending.url) {
-        setPendingLinkUrl(pending.url);
-        setLinkModalVisible(true);
-      }
-    } finally {
-      await AsyncStorage.removeItem(PENDING_SHARE_KEY);
-    }
-  }, []);
-
   useFocusEffect(
     useCallback(() => {
       setLoading(true);
       void load();
-      void loadPendingShareUrl();
       if (user) void checkOnboarding();
-    }, [load, loadPendingShareUrl, user, checkOnboarding]),
+    }, [load, user, checkOnboarding]),
   );
 
   useEffect(() => {
@@ -271,11 +255,9 @@ export default function HomeScreen() {
             visible={linkModalVisible}
             userId={user.id}
             boards={boardList}
-            initialUrl={pendingLinkUrl}
-            onClose={() => {
-              setLinkModalVisible(false);
-              setPendingLinkUrl('');
-            }}
+            useAiPreview={isWeb}
+            onAiPreview={(url) => void openShareReview(url)}
+            onClose={() => setLinkModalVisible(false)}
             onSaved={async () => {
               await load();
               if (onboardingStep === 2) advanceOnboardingAfterAction();

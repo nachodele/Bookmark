@@ -15,19 +15,22 @@ import { Ionicons } from '@expo/vector-icons';
 import type { BookmarkWithBoard } from '@/lib/supabase/database.types';
 import { useTheme } from '@/contexts/ThemeContext';
 import { detectSourceApp, faviconUrl } from '@/lib/utils/source';
+import { ThumbnailEditor } from '@/components/ThumbnailEditor';
 
 type BookmarkDetailModalProps = {
   visible: boolean;
   bookmark: BookmarkWithBoard | null;
+  userId: string | null;
   onClose: () => void;
   onMove: () => void;
-  onSave: (updates: { title: string; description: string }) => Promise<void>;
+  onSave: (updates: { title: string; description: string; thumbnail_url?: string | null }) => Promise<void>;
   onDelete: () => Promise<void>;
 };
 
 export function BookmarkDetailModal({
   visible,
   bookmark,
+  userId,
   onClose,
   onMove,
   onSave,
@@ -37,12 +40,14 @@ export function BookmarkDetailModal({
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (bookmark) {
       setTitle(bookmark.title ?? '');
       setDescription(bookmark.description ?? '');
+      setThumbnailUrl(bookmark.thumbnail_url ?? null);
       setEditing(false);
     }
   }, [bookmark]);
@@ -55,7 +60,11 @@ export function BookmarkDetailModal({
   const handleSave = async () => {
     setBusy(true);
     try {
-      await onSave({ title: title.trim(), description: description.trim() });
+      await onSave({
+        title: title.trim(),
+        description: description.trim(),
+        thumbnail_url: thumbnailUrl,
+      });
       setEditing(false);
     } finally {
       setBusy(false);
@@ -87,6 +96,15 @@ export function BookmarkDetailModal({
 
           {editing ? (
             <View style={styles.form}>
+              {userId ? (
+                <ThumbnailEditor
+                  userId={userId}
+                  linkUrl={bookmark.url}
+                  thumbnailUrl={thumbnailUrl}
+                  onChange={setThumbnailUrl}
+                  colors={colors}
+                />
+              ) : null}
               <Text style={[styles.label, { color: colors.textSecondary }]}>Title</Text>
               <TextInput
                 value={title}

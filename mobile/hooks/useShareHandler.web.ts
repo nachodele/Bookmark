@@ -1,13 +1,8 @@
-import type { ShareReviewDraft, ShareToast } from '@/hooks/useShareHandler';
+import { useShareReviewFlow } from '@/hooks/useShareReviewFlow';
 
-/** Web Save tab is manual-only; share target pre-fills URL via WebShareCapture + save screen. */
-export function useShareHandler(_onSaved?: () => void) {
-  return {
-    toast: null as ShareToast | null,
-    reviewVisible: false,
-    reviewLoading: false,
-    reviewDraft: null as ShareReviewDraft | null,
-    dismissReview: () => {},
-    handleReviewSaved: (_boardName: string) => {},
-  };
+export type { ShareReviewDraft, ShareToast } from '@/hooks/useShareReviewFlow';
+
+/** Web/PWA — no native share intent; pending shares handled via ShareReviewPendingConsumer. */
+export function useShareHandler(onSaved?: () => void) {
+  return useShareReviewFlow(onSaved);
 }
