@@ -9,8 +9,9 @@ export default function TabsLayout() {
   const { user } = useAuth();
   const { colors } = useTheme();
   const isLoggedIn = Boolean(user);
-  const tabBarBottom = useBottomSafeInset(isWeb ? 24 : 8);
-  const tabBarHeight = 48 + tabBarBottom;
+  const tabBarBottom = useBottomSafeInset(isWeb ? 16 : 8);
+  /** Icon + label zone — safe-area padding sits below this, not inside it */
+  const tabBarCoreHeight = isWeb ? 58 : 56;
 
   return (
     <Tabs
@@ -19,17 +20,17 @@ export default function TabsLayout() {
         headerTintColor: colors.accent,
         headerShadowVisible: false,
         sceneStyle: { backgroundColor: colors.background },
+        tabBarShowLabel: true,
         tabBarStyle: isLoggedIn
           ? {
               backgroundColor: colors.surface,
               borderTopColor: colors.surfaceBorder,
-              height: tabBarHeight,
+              height: tabBarCoreHeight + tabBarBottom,
               paddingBottom: tabBarBottom,
               paddingTop: 6,
             }
           : { display: 'none' },
-        tabBarItemStyle: { paddingTop: 2 },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600', marginBottom: 2 },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600', lineHeight: 14 },
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.textMuted,
         headerShown: isLoggedIn,
