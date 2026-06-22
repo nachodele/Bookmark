@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useNavigation } from 'expo-router';
+import { useLocalSearchParams, useNavigation, router } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -33,6 +33,7 @@ import { filterBookmarksLocally } from '@/lib/api/bookmarks';
 import { supabase } from '@/lib/supabase/client';
 import type { Bookmark, BookmarkWithBoard } from '@/lib/supabase/database.types';
 import { useBookmarkActions } from '@/hooks/useBookmarkActions';
+import { isWeb } from '@/lib/platform';
 
 export default function BoardDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -83,6 +84,18 @@ export default function BoardDetailScreen() {
 
   useLayoutEffect(() => {
     navigation.setOptions({
+      headerTintColor: colors.accent,
+      headerTitleAlign: 'center',
+      ...(isWeb
+        ? {
+            headerBackVisible: false,
+            headerLeft: () => (
+              <Pressable onPress={() => router.back()} hitSlop={12} style={styles.headerBtn}>
+                <Ionicons name="chevron-back" size={28} color={colors.accent} />
+              </Pressable>
+            ),
+          }
+        : {}),
       headerTitle: () => (
         <View style={styles.headerTitleWrap}>
           <Text style={[styles.headerBoardName, { color: colors.text }]} numberOfLines={1}>

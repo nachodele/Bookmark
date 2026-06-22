@@ -200,6 +200,10 @@ function isYouTubeMusicCandidate(metadata: LinkMetadata, url: string): boolean {
 
 /** Genre/subject keywords in AI copy or metadata — maps to catalog board names */
 const SUBJECT_KEYWORD_TO_BOARD: [RegExp, string][] = [
+  [
+    /\b(religion|religious|spiritual|spirituality|faith|prayer|pray(?:ing)?|worship|church|mosque|synagogue|temple|bible|quran|cor[aá]n|gospel|sermon|blessed|cristian|christian|muslim|islam|judaism|buddhis|hindu|rezar|orar|oraci[oó]n|iglesia|creyente|fe\b|dios|pastor|evangelio)\b/i,
+    'Religion',
+  ],
   [/\b(rock|grunge|alternative|punk|metal|grime)\b/i, 'Rock'],
   [/\b(hip[\s-]?hop|\brap\b|drill|trap)\b/i, 'Hip-Hop'],
   [/\b(techno|berghain|gabber|hardcore)\b/i, 'Techno'],
@@ -214,7 +218,7 @@ const SUBJECT_KEYWORD_TO_BOARD: [RegExp, string][] = [
   [/\b(country\s*music|country\s*song)\b/i, 'Country'],
   [/\b(salsa|bachata|merengue)\b/i, 'Latin'],
   [/\b(pop\s*music|synthpop|pop\s*song)\b/i, 'Pop'],
-  [/\b(football|soccer|premier\s*league|champions\s*league)\b/i, 'Football'],
+  [/\b(football|soccer|fifa|premier\s*league|champions\s*league|selecci[oó]n|partido|f[uú]tbol|liga\b|mundial|copa\s+del\s+mundo|gol(?:es)?|jugadores?|portero|entrenador|estadio)\b/i, 'Football'],
   [/\b(basketball|nba)\b/i, 'Basketball'],
   [/\b(recipe|cooking|baking)\b/i, 'Recipes'],
   [/\b(workout|crossfit|gym|fitness)\b/i, 'Fitness'],
@@ -230,7 +234,6 @@ function inferBoardFromText(
   const trimmed = text.trim();
   if (!trimmed || isBoilerplateDescription(trimmed)) return null;
 
-  // Specific genres/topics before umbrella rules (e.g. "Rock Music" → Rock, not Music)
   for (const [pattern, board] of SUBJECT_KEYWORD_TO_BOARD) {
     if (pattern.test(trimmed)) {
       return pickExistingOrCatalog(userBoards, board, catalog);
@@ -435,6 +438,36 @@ function pickCatalogBoard(name: string, catalog: BoardCatalog): string | null {
   return findInCatalog(name, catalog) ?? null;
 }
 
+/** Collect catalog subject boards matched in text (order = priority). */
+function matchSubjectBoards(text: string): string[] {
+  const trimmed = text.trim();
+  if (!trimmed || isBoilerplateDescription(trimmed)) return [];
+
+  const matches: string[] = [];
+  for (const [pattern, board] of SUBJECT_KEYWORD_TO_BOARD) {
+    if (pattern.test(trimmed) && !matches.includes(board)) {
+      matches.push(board);
+    }
+  }
+  return matches;
+}
+
+function pickUserSubjectBoard(text: string, userBoards: string[]): string | null {
+  for (const board of matchSubjectBoards(text)) {
+    const user = userBoards.find((b) => b.toLowerCase() === board.toLowerCase());
+    if (user) return user;
+  }
+  return null;
+}
+
+function pickCatalogSubjectBoard(text: string, catalog: BoardCatalog): string | null {
+  for (const board of matchSubjectBoards(text)) {
+    const catalogBoard = pickCatalogBoard(board, catalog);
+    if (catalogBoard) return catalogBoard;
+  }
+  return null;
+}
+
 /** Tier 1 — topic keywords that match a board the user already has */
 function matchUserBoardTopic(text: string, userBoards: string[]): string | null {
   if (!text.trim() || isAmbiguousOfTitle(text)) return null;
@@ -451,10 +484,9 @@ function matchUserBoardTopic(text: string, userBoards: string[]): string | null 
 function matchCatalogTopic(text: string, catalog: BoardCatalog): string | null {
   if (!text.trim() || isBoilerplateDescription(text)) return null;
 
-  for (const [pattern, board] of SUBJECT_KEYWORD_TO_BOARD) {
-    if (pattern.test(text)) {
-      return pickCatalogBoard(board, catalog);
-    }
+  for (const board of matchSubjectBoards(text)) {
+    const catalogBoard = pickCatalogBoard(board, catalog);
+    if (catalogBoard) return catalogBoard;
   }
 
   for (const rule of GENERIC_TOPIC_RULES) {
@@ -493,6 +525,11 @@ function resolveBoardTiered(
         !isIncidentalUserBoardMatch(metadata, url, board, userBoards, catalog)) {
       return { board_name: board, tier: 'user' };
     }
+  }
+
+  const userFromSubject = pickUserSubjectBoard(fullText, userBoards);
+  if (userFromSubject) {
+    return { board_name: userFromSubject, tier: 'user' };
   }
 
   const userFromTitle = matchUserBoardTopic(title, userBoards);
@@ -723,7 +760,7 @@ function normalizeUrl(url: string): string {
   }
 }
 
-const CACHE_VERSION = 36;
+const CACHE_VERSION = 37;
 const CACHE_TTL_MS = 60 * 24 * 60 * 60 * 1000;
 const CACHE_STRIP_QUERY = new Set(['fbclid', 'gclid', 'si', 'is', 'feature', 'igsh', 'igshid']);
 
@@ -1099,8 +1136,8 @@ const GENERIC_TOPIC_RULES: { pattern: RegExp; en: string; es: string }[] = [
     es: 'IA',
   },
   {
-    // Gaming: umbrella + play actions
-    pattern: /\b(gaming|video\s*games?|gameplay|playthroughs?|esports|videojuegos?|jugadores?|streamers?|speedrun|walkthrough|play(?:ing)?|streaming|jugar|partida|stream(?:ing)?)\b/i,
+    // Gaming: video games only — not Spanish "jugadores"/"partido" (sports)
+    pattern: /\b(gaming|video\s*games?|gameplay|playthroughs?|esports|videojuegos?|streamers?|speedrun|walkthrough|speedrunning|streaming|stream(?:ing)?)\b/i,
     en: 'Gaming',
     es: 'Gaming',
   },
@@ -2005,7 +2042,7 @@ function inferGranularBoard(metadata: LinkMetadata, url: string): string | null 
     [/\b(mma|ufc|bellator)\b/i, 'MMA'],
     [/\b(tennis|wimbledon|atp|wta)\b/i, 'Tennis'],
     [/\b(basketball|nba|wnba|euroleague)\b/i, 'Basketball'],
-    [/\b(football|soccer|fifa|premier\s*league|la\s*liga|champions\s*league)\b/i, 'Football'],
+    [/\b(football|soccer|fifa|premier\s*league|la\s*liga|champions\s*league|selecci[oó]n|partido|f[uú]tbol)\b/i, 'Football'],
     [/\b(gabber|hardcore|hard\s*techno|techno|berghain)\b/i, 'Techno'],
     [/\b(deep\s*house|tech\s*house|house\s*music|house\s*(mix|set))\b/i, 'House'],
     [/\b(hip[\s-]?hop|\brap\b|drill|trap|grime)\b/i, 'Hip-Hop'],
@@ -2062,6 +2099,15 @@ function validateBoardChoice(
 
   if (boardLower === 'art' && /tattoo|刺青|纹身|tatuaje/i.test(text)) {
     return pickExistingOrCatalog(existingBoards, 'Tattoo', catalog);
+  }
+
+  if (
+    boardLower === 'gaming' &&
+    /\b(selecci[oó]n|partido|f[uú]tbol|football|soccer|jugadores?|rezar|orar|creyente|prayer|faith|religion)\b/i.test(text)
+  ) {
+    const subjectBoard = pickUserSubjectBoard(text, existingBoards) ??
+      pickCatalogSubjectBoard(text, catalog);
+    if (subjectBoard) return subjectBoard;
   }
 
   const userMatch = existingBoards.find((b) => b.toLowerCase() === boardLower);
@@ -2316,7 +2362,7 @@ function buildTitleFromMetadata(metadata: LinkMetadata, url: string, boardName?:
 function isLikelyFootball(title: string, description: string): boolean {
   const text = `${title} ${description}`.toLowerCase();
   if (/\d+\s*[–\-—]\s*\d+/.test(title)) return true;
-  return /\b(football|soccer|fifa|world cup|copa mundial|resumen|highlights|vs\.?| v )\b/i.test(text);
+  return /\b(football|soccer|fifa|world cup|copa mundial|resumen|highlights|selecci[oó]n|partido|f[uú]tbol|vs\.?| v )\b/i.test(text);
 }
 
 function buildDescriptionFromMetadata(metadata: LinkMetadata, url: string, boardName?: string): string {
