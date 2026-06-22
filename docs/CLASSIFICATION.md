@@ -2,7 +2,8 @@
 
 How Bookmark decides **board**, **title**, and **description** when you share a link.
 
-Implementation: `supabase/functions/save-bookmark/index.ts`
+Implementation: `supabase/functions/save-bookmark/index.ts`  
+Structure reference: [SAVE_BOOKMARK_FUNCTION.md](./SAVE_BOOKMARK_FUNCTION.md)
 
 ---
 
@@ -14,9 +15,8 @@ Share URL from phone
         → normalize URL
         → fetch metadata (oEmbed, Microlink, OG tags, YouTube player)
         → lookup classification cache (60-day TTL)
-        → if miss: run classification pipeline
-        → create board if needed
-        → insert bookmark
+        → if miss: run classification pipeline (see below)
+        → preview or save bookmark + create board if needed
 ```
 
 Each user has **private** boards. The classifier reads the global **`board_catalog`** (~308 categories, EN + ES) plus that user's existing board names.
@@ -28,77 +28,82 @@ Each user has **private** boards. The classifier reads the global **`board_catal
 | Step | Provider | Cost | When |
 |------|----------|------|------|
 | **0. Cache** | Postgres | Free | Same URL classified in last 60 days |
-| **1. Heuristics** | Rules | Free | Obvious matches (commerce, umbrella + method keywords) |
-| **2. Groq** | Llama via Groq | Groq quota | Heuristics inconclusive |
-| **3. Gemini** | Google | Gemini quota | Groq fails or 429 |
-| **4. Generic board** | Rules | Free | Both AIs unavailable — **no topic guessing** |
+| **1. Tier-1 user boards** | Rules | Free | Title/topic genuinely matches a board the user already has |
+| **2. Groq** | Llama via Groq | Groq quota | **Always first AI step** — board + title + description |
+| **3. Gemini vision upgrade** | Google | Gemini quota | Groq/Gemini text returned a generic pick (Social Media, Social Network, …) + thumbnail |
+| **4. Gemini text** | Google | Gemini quota | Groq failed; vision if text also fails on sparse social |
+| **5. Heuristics** | Rules | Free | AI unavailable or exhausted |
+| **6. Catch-all** | Rules | Free | Ideas / Inspiration |
 
 ```mermaid
 flowchart TD
     A[Link + metadata] --> B{Cache hit?}
     B -->|yes| Z[Use cached result]
-    B -->|no| C[1. Heuristics]
-    C -->|confident| H[Save — source: heuristic]
-    C -->|skip| D[2. Groq]
-    D -->|ok| G[Save — source: groq]
-    D -->|fail| E[3. Gemini text]
-    E -->|ok| GM[Save — source: gemini]
-    E -->|fail| V{Social + thumbnail?}
+    B -->|no| T1[1. Tier-1 user board]
+    T1 -->|match| H[Save — heuristic plain copy]
+    T1 -->|no| G[2. Groq unified / 2-step]
+    G -->|ok| W{Generic pick?}
+    W -->|yes + thumbnail| EV[Gemini vision upgrade]
+    EV -->|ok| GM[Save — source: gemini]
+    W -->|no| GR[Save — source: groq]
+    EV -->|fail| GR
+    G -->|fail| GM3[4. Gemini text]
+    GM3 -->|ok| GM[Save — source: gemini]
+    GM3 -->|fail| V{Social + thumbnail?}
     V -->|yes| EV[Gemini vision]
     EV -->|ok| GM
-    V -->|no| F[4. Ideas / Inspiration]
-    EV -->|fail| F
-    F --> I[Save — source: heuristic]
+    V -->|no| HE[5. Heuristics fallback]
+    EV -->|fail| HE
+    HE -->|confident| H
+    HE -->|no| F[6. Ideas / Inspiration]
+    F --> H
 ```
 
----
+**Design principle:** Groq is always the first AI step. Gemini vision runs only when text AI returns a generic pick. Heuristics are the last resort before Ideas.
 
-## Step 1 — Heuristics (primary)
-
-**Goal:** Classify without AI when the signal is strong enough.
-
-### Two-layer rules (all domains)
-
-1. **Umbrella nouns** — category words: `food`, `cocina`, `fitness`, `code`, `travel`…
-2. **Domain methods** — generic actions: `bake`, `asar`, `train`, `debug`, `review`…
-
-### Never used for heuristics
-
-- Specific dish / entity names (`paella`, `pimientos`)
-- Scene props (`lumbre`, venue names)
-- Media format (`video`, `reel`, `shorts`)
-
-Titles with **only** an entity name and no umbrella/method → skip heuristics → AI.
-
-### Ambiguous English (generic collision avoidance)
-
-Some words are both board names and ordinary English (`house`, `series`, `home`, `game`, `art`…).
-
-| Rule | Behavior |
-|------|----------|
-| **"X of Y" titles** | `series of tools`, `House of the Dragon`, `Game of Thrones` → **skip all topic heuristics** → Groq/Gemini + user boards |
-| **Single-word user boards** | Never auto-match from title when the board name is in the ambiguous set (`House`, `Series`, `Home`…) |
-| **Film/TV rule** | Requires platform, `tv series`, numbered season/episode — **not** bare `series` / `season` / `trailer` |
-| **Home rule** | Compound phrases only (`home decor`, `furniture`) — **not** bare `home` |
-| **Music "house"** | Only `deep house`, `tech house`, `house music` — not `House of …` |
-
-This avoids show-specific hacks; ambiguous cases defer to AI with **user boards listed first** in the prompt.
-
-### Other heuristic shortcuts
-
-| Signal | Board |
-|--------|-------|
-| Commerce URL (Amazon, Shopify, `/products/`) | Shopping / Fashion |
-| Football scoreline in title (`2–1`) | Football |
-| Unambiguous genre in title (`techno`, `k-pop`, `drill`) | Matching genre board |
-
-### Weak boards (never accept as final heuristic pick)
-
-Broad catch-alls: `Music`, `Video`, `Tutorials`, `Entertainment`, etc. — AI or generic fallback handles these.
+1. Tier-1 user boards (deterministic)
+2. Groq unified (board + title + description)
+3. Gemini vision upgrade (if Groq/Gemini text result is generic + thumbnail)
+4. Gemini text (if Groq failed) → same vision upgrade rule
+5. Heuristics (AI down / quota exhausted)
+6. Ideas / Inspiration (absolute last resort)
 
 ---
 
-## Step 2 — Groq (dual-model text AI)
+## Step 1 — Tier-1 user boards
+
+**Goal:** Respect boards the user already created when the match is genuine.
+
+| Signal | Example |
+|--------|---------|
+| Board name in title (non-incidental) | User has **Recipes** + title contains `receta` |
+| Topic keyword → user's board | User has **CrossFit** + title mentions `crossfit` |
+
+**Not tier-1:**
+
+- Song title contains a board name (`My Medicine` ≠ Health/Medicine board) — `isIncidentalUserBoardMatch`
+- Catalog-only matches (Rock, Music without user board) — deferred to Groq
+- Ambiguous English (`House of the Dragon`, `series of tools`) — deferred to AI
+
+**Copy:** plain metadata title for both title and description (no `Video:`, `Music:` prefixes).
+
+Log: `Classified tier-1 (user board)`
+
+---
+
+## Step 2 — Groq (always first AI)
+
+Requires **`GROQ_API_KEY`**. See [GROQ_SETUP.md](./GROQ_SETUP.md).
+
+Runs for **every** link (Instagram, YouTube, Amazon, …) after tier-1 user boards.
+
+If Groq returns a **generic** classification — board `Social Media`, title `Social Network`, boilerplate description, Ideas catch-all, etc. — and a thumbnail exists, **`maybeUpgradeWithVision`** runs Gemini vision on the image before saving.
+
+Log upgrade: `Text AI result too generic — trying Gemini vision`
+
+---
+
+## Step 3 — Groq details (models & sub-flow)
 
 Requires Supabase secret **`GROQ_API_KEY`**. See [GROQ_SETUP.md](./GROQ_SETUP.md).
 
@@ -116,15 +121,15 @@ A. 70B unified (1 API call)
    "Pick board + write title + description"
    ✅ → done
 
-B. 8B two-step (only if A fails or 429)
+B. 8B two-step (only if A fails)
    B1. 8B board pick
    B2. 8B title + description
    ✅ → done
 
-C. → Gemini
+C. → Gemini (step 4)
 ```
 
-**Why dual models:** 70B is stronger and usually needs **one call** (12K TPM). 8B is cheaper on daily quota (14.4K RPD) and used only as fallback so 70B isn't wasted on 3 calls per link.
+**Why dual models:** 70B is stronger and usually needs **one call** (12K TPM). 8B is cheaper on daily quota (14.4K RPD) and used only as fallback.
 
 ### Rate limits (free tier, approximate)
 
@@ -133,34 +138,34 @@ C. → Gemini
 | 70B versatile | 30 | 1,000 | 12,000 |
 | 8B instant | 30 | 14,400 | 6,000 |
 
-Personal use is well within RPD. Burst saving several links quickly is **TPM**-limited.
-
-See [Groq rate limits](https://console.groq.com/docs/rate-limits) and [console settings](https://console.groq.com/settings/limits).
+See [Groq rate limits](https://console.groq.com/docs/rate-limits).
 
 ### AI output rules
 
-- **Title:** max **40 characters** — `[type]: [subject]`, not raw page title  
-  - Good: `Freestyle: EAZYBOI x TRIPLO`  
-  - Bad: full YouTube title with venue and featured artists
+- **Title:** max **40 characters** — `{Topic}: {Subject}` derived **only** from page metadata; no few-shot examples in prompts (models copy them)
 - **Description:** 1–2 sentences about content; max 500 chars
-- **Never:** platform boilerplate (*"Enjoy the videos…"*), likes/views/followers, `Original title:` append
-- **Board:** must be from catalog or user's existing boards — no invented names
-- **Never pick as board:** Video, Vídeo, Tutorials, Entertainment, generic catch-alls
+- **Never:** platform boilerplate (*"Enjoy the videos…"*), likes/views/followers
+- **Board order in prompt:** user boards → catalog → never Ideas when a catalog board fits
 
-### Log messages (Supabase → Edge Functions → save-bookmark)
+### Post-AI reconciliation
+
+- Catch-all AI picks (Ideas) upgraded via `upgradeCatchallBoard` + `resolveBoardTiered`
+- Board must align with title/description (`reconcileBoardWithClassification`)
+- Tiered override when AI picks Ideas but metadata signals Rock, Music, etc.
+
+### Log messages
 
 | Log | Meaning |
 |-----|---------|
 | `Groq unified: success (1-call)` | 70B returned everything — best path |
 | `Groq unified: missing title or description — using 8B 2-step path` | 70B incomplete → fallback |
 | `Groq step 1/2 (8B fallback): board picked` | 8B board step |
-| `Groq copy attempt 1: ok` | 8B title/description step |
 | `Classified with Groq (2-step)` | Final result from 8B path |
-| `Groq unavailable — trying Gemini` | All Groq calls failed |
+| `Groq could not classify — trying Gemini` | All Groq calls failed |
 
 ---
 
-## Step 3 — Gemini (text fallback + vision)
+## Step 4 — Gemini (text fallback + vision)
 
 Requires **`GEMINI_API_KEY`**. See [GEMINI_SETUP.md](./GEMINI_SETUP.md).
 
@@ -168,51 +173,109 @@ Optional: `GEMINI_MODEL` (default `gemini-2.5-flash-lite`).
 
 ### Text path
 
-Same board/title/description rules as Groq. Used when Groq is unavailable (429, error, no key).
+Same board/title/description rules as Groq. Used when Groq fails.
 
-Flow mirrors Groq: unified 1-call when metadata is rich, else board pick + copy generation.
+Flow mirrors Groq: unified 1-call when possible, else board pick + copy generation.
 
-### Vision path
+### Vision upgrade (`maybeUpgradeWithVision`)
 
-Runs only when **all** of:
+**When:** Groq or Gemini **text** succeeded but result is generic:
 
-- Groq text failed
-- Gemini text failed
-- URL is social content (Instagram, TikTok, …)
-- Thumbnail available
-- Metadata is sparse (little title/description)
+- Board: Social Media, Social Network, Content, Posts, Ideas, …
+- Title: `Social Network`, `Social Media`, platform name, …
+- Description: platform boilerplate or “social networking platform…”
 
-Gemini reads the **thumbnail image** + minimal caption to pick board, then generates title/description.
+**Requires:** thumbnail on the link.
+
+**Always upgrades** when caption metadata is untrustworthy (Instagram login text, `@handle` only, title `Instagram`, etc.) — text models hallucinate boards/titles (e.g. random Hip-Hop freestyle).
+
+**Also upgrades** when Groq returns an explicitly generic pick (Social Media, Social Network, Ideas, …) even if caption looked OK.
+
+**Not triggered:** YouTube (or any URL) with a real oEmbed title/caption and a specific Groq pick.
+
+If Groq **fails entirely**, Gemini text runs; same upgrade rule applies. If both text paths fail on sparse social (no trustworthy caption), Gemini vision runs as fallback.
+
+Log: `Gemini could not classify — trying heuristics`
 
 ---
 
-## Step 4 — Generic board (AI safety net)
+## Step 5 — Heuristics (fallback)
 
-When **both** Groq and Gemini fail (429, no keys, errors):
+**Goal:** Classify without AI when providers are down, rate-limited, or returned nothing usable.
+
+Runs **after** Groq and Gemini — not before.
+
+### Two-layer rules (all domains)
+
+1. **Umbrella nouns** — category words: `food`, `cocina`, `fitness`, `code`, `travel`…
+2. **Domain methods** — generic actions: `bake`, `asar`, `train`, `debug`, `review`…
+
+### Never used for heuristics
+
+- Specific dish / entity names (`paella`, `pimientos`)
+- Scene props (`lumbre`, venue names)
+- Media format alone (`video`, `reel`, `shorts`)
+- YouTube boilerplate descriptions (*"Enjoy the videos and music you love…"*)
+
+### Special cases
+
+| Signal | Board |
+|--------|-------|
+| YouTube `Artist - Track` title | Music genre from catalog (Rock, Pop, …) |
+| Football scoreline in title (`2–1`) | Football |
+| Unambiguous genre in title (`techno`, `k-pop`, `drill`) | Matching genre board |
+
+### Ambiguous English
+
+| Rule | Behavior |
+|------|----------|
+| **"X of Y" titles** | `series of tools`, `House of the Dragon` → skip topic heuristics |
+| **Single-word user boards** | Never auto-match from title (`House`, `Series`, `Home`…) |
+| **Incidental board names** | Song/brand names in title ≠ board topic (`My Medicine` ≠ Medicine) |
+
+### Heuristic copy (plain)
+
+Heuristic paths use **no prefixes** — title and description are the cleaned page title:
+
+```
+The Pretty Reckless - My Medicine
+```
+
+Not `Video: …` or `Music: …`. AI paths still use styled short titles.
+
+Log: `Classified with heuristics (fallback)`
+
+---
+
+## Step 6 — Catch-all (Ideas / Inspiration)
+
+When AI and heuristics both fail:
 
 - Pick first available: **Ideas** → **Inspiration** → **Inspiración**
-- **No topic keyword matching** — avoids false positives (e.g. football → Recipes)
-- Link still saves; user can move or edit later
+- Plain copy from metadata (same as other heuristic paths)
+- User can move or edit later
 
-Heuristics from step 1 are **not** re-run here on purpose.
+Log: `Classified catch-all (AI + heuristics exhausted)`
 
 ---
+
+## Board resolution helpers
+
+| Function | Role |
+|----------|------|
+| `resolveBoardTiered` | User boards → catalog (used in AI post-processing, not as primary pipeline step) |
+| `pickExistingOrCatalog` | Map catalog name to user board or catalog entry; Music → Rock/Pop/… fallback |
+| `upgradeCatchallBoard` | Replace Ideas/Inspiration when metadata has stronger signal |
+| `reconcileBoardWithClassification` | Align board with AI title/description keywords |
 
 ### Broad vs rejectable boards
 
 | Type | Examples | Treatment |
 |------|----------|-----------|
-| **User boards** | Your Calisthenics, Fitness, Techno | **Highest priority** in AI prompts |
-| **Broad catalog** | Fitness, Food, Travel, Sport | **Valid** final picks — refined only when title clearly suggests something narrower (plank → CrossFit) |
-| **Rejectable** | Video, Posts, Content, Entertainment | Never saved — fallback to Ideas or refine |
-
-We never **reject** broad topics like Fitness. We **refine** when possible (CrossFit), otherwise keep the broad board.
-
-### User board priority
-
-AI prompts list **USER BOARDS first** with explicit instruction: if the link fits a board the user already created, pick that exact name. This makes classification personal — one user's plank video → Calisthenics, another's → Fitness.
-
-**Recommendation:** create your boards before sharing links. See in-app guide: Account → How to use Bookmark.
+| **User boards** | Your Calisthenics, Fitness, Techno | **Highest priority** in AI prompts + tier-1 |
+| **Broad catalog** | Fitness, Food, Travel | Valid final picks — refined when title suggests narrower topic |
+| **Rejectable** | Video, Posts, Content, Entertainment | Never saved — refine or fallback |
+| **Catch-all** | Ideas, Inspiration | Last resort only |
 
 ---
 
@@ -223,13 +286,13 @@ AI prompts list **USER BOARDS first** with explicit instruction: if the link fit
 | Table | `link_classification_cache` |
 | TTL | 60 days |
 | Key | Normalized URL hash |
-| Version | `CACHE_VERSION` in `index.ts` (currently **16**) |
+| Version | `CACHE_VERSION` in `index.ts` (currently **36**) |
 
 Cached fields: `board_name`, `title`, `description`, `source` (`groq` | `gemini` | `heuristic`).
 
 **Bump `CACHE_VERSION`** when classification logic changes materially — old entries are ignored.
 
-**Not cached:** weak boards (Ideas, Video, Shopping without commerce URL), platform boards, empty titles.
+**Not cached:** weak boards (Ideas without strong signal), platform boards, Shopping without commerce URL, empty titles.
 
 ---
 
@@ -237,15 +300,14 @@ Cached fields: `board_name`, `title`, `description`, `source` (`groq` | `gemini`
 
 - Table: `board_catalog` — global, not per-user
 - ~308 active categories in English and Spanish
+- Includes genre boards (Rock, Pop, Hip-Hop, …) and umbrella **Music**
 - AI prompts include grouped catalog + user's custom board names
 - Edge function caches catalog **5 minutes** — DB-only catalog updates need no redeploy
 - Add categories via idempotent SQL migrations
 
 ---
 
-## Supabase secrets (complete list)
-
-Set via CLI or Dashboard → Project Settings → Edge Functions → Secrets.
+## Supabase secrets
 
 ```bash
 supabase secrets set GROQ_API_KEY=gsk_...
@@ -260,19 +322,17 @@ supabase secrets set SKIP_GEMINI=true    # debug: skip Gemini
 
 | Secret | Required | Purpose |
 |--------|----------|---------|
-| `GROQ_API_KEY` | For Groq path | Groq API authentication |
-| `GROQ_MODEL` | Recommended | Primary model (70B unified) |
-| `GROQ_FALLBACK_MODEL` | Recommended | Fallback model (8B two-step) |
+| `GROQ_API_KEY` | For AI path | Groq API authentication |
 | `GEMINI_API_KEY` | For vision/fallback | Google AI authentication |
-| `GEMINI_MODEL` | Optional | Override Gemini model |
-| `SKIP_GROQ` | Optional | Force skip Groq |
-| `SKIP_GEMINI` | Optional | Force skip Gemini |
+| `SKIP_GROQ` / `SKIP_GEMINI` | Optional | Force skip providers (falls through to heuristics) |
 
 `SUPABASE_SERVICE_ROLE_KEY` is auto-injected — needed for classification cache writes.
 
-**Without AI keys:** heuristics for obvious links → Ideas/Inspiration for the rest.
+**Without AI keys:** tier-1 user boards → heuristics → Ideas.
 
-After changing secrets, redeploy is **not** strictly required (secrets are runtime), but redeploy after code changes:
+**Shopping / product URLs:** no URL fast-path — Groq/Gemini classify from page title and metadata (avoids false positives like `/product` in non-shop URLs).
+
+Deploy after code changes:
 
 ```bash
 supabase functions deploy save-bookmark --project-ref YOUR_PROJECT_REF
@@ -284,12 +344,14 @@ supabase functions deploy save-bookmark --project-ref YOUR_PROJECT_REF
 
 | Link | Typical result |
 |------|----------------|
-| Amazon product URL | Heuristics → Shopping |
-| YouTube recipe with `receta` + `hornear` | Heuristics → Recetas |
-| YouTube music (messy title) | Groq 70B 1-call → Hip-Hop + short title |
-| Instagram reel, no caption | Groq fail → Gemini vision |
-| Obscure link, all APIs 429 | Ideas |
-| Same URL shared again within 60 days | Cache hit — no AI |
+| User has Recipes + recipe URL | Tier-1 → Recipes |
+| Amazon product URL | Groq → Shopping (from title/metadata) |
+| YouTube rock video | Groq → Rock + AI short title |
+| YouTube music, Groq 429 | Gemini → or heuristics → Rock/Music (plain copy) |
+| Instagram post, login boilerplate | Embed caption fetch → tier-2 Tattoo (or Groq with real caption) |
+| YouTube song with good title | Groq only (no vision upgrade) |
+| Obscure link, all APIs 429 | Heuristics → or Ideas |
+| Same URL within 60 days | Cache hit — no AI |
 
 ---
 
@@ -298,17 +360,17 @@ supabase functions deploy save-bookmark --project-ref YOUR_PROJECT_REF
 | Change | Action |
 |--------|--------|
 | Classifier logic | Edit `save-bookmark/index.ts`, bump `CACHE_VERSION`, deploy function |
-| New board categories | SQL migration on `board_catalog` |
+| New board categories | `supabase db push --linked` (migration on `board_catalog`) |
 | Rotate API key | `supabase secrets set KEY=new-value` |
 | Debug provider | `SKIP_GROQ` or `SKIP_GEMINI` |
 
-**Logs:** Supabase Dashboard → Edge Functions → `save-bookmark` → Logs  
-**Groq usage:** [console.groq.com](https://console.groq.com) → Logs
+**Logs:** Supabase Dashboard → Edge Functions → `save-bookmark` → Logs
 
 ---
 
 ## Related docs
 
+- [SAVE_BOOKMARK_FUNCTION.md](./SAVE_BOOKMARK_FUNCTION.md) — `index.ts` structure and modules
 - [GROQ_SETUP.md](./GROQ_SETUP.md) — Groq account + secrets
 - [GEMINI_SETUP.md](./GEMINI_SETUP.md) — Gemini account + secrets
 - [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) — new project from scratch

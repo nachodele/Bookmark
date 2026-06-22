@@ -8,6 +8,9 @@ const corsHeaders = {
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
+const MOBILE_UA =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1';
+
 const PLATFORM_NAMES = new Set([
   'instagram', 'youtube', 'tiktok', 'twitter', 'x', 'facebook', 'web',
   'spotify', 'linkedin', 'reddit', 'pinterest', 'whatsapp', 'snapchat',
@@ -20,6 +23,136 @@ const SOCIAL_CONTENT_HOST =
 const PLATFORM_NAME_ALT = [...PLATFORM_NAMES].filter((n) => n !== 'web').join('|');
 const PLATFORM_CONTENT_TYPES = 'photo|video|reel|post|pin|tweet|image|story|short|clip|live';
 
+/** Boards that describe the platform, not the post topic */
+const PLATFORM_GENERIC_BOARD_NAMES = new Set([
+  'social media', 'social network', 'social networks', 'social networking',
+  'redes sociales', 'red social', 'networking', 'content', 'posts', 'videos',
+]);
+
+function isPlatformGenericBoardName(name: string): boolean {
+  const lower = name.trim().toLowerCase();
+  if (PLATFORM_GENERIC_BOARD_NAMES.has(lower)) return true;
+  if (isGenericBoardName(name) || isGenericMediaBoard(name)) return true;
+  return false;
+}
+
+/**
+ * True when title/description carry a real post caption (any language).
+ * False for platform names, login boilerplate, @handles only, author-only stubs.
+ */
+function hasTrustworthyCaption(metadata: LinkMetadata, url: string): boolean {
+  const title = metadata.title.trim();
+  const desc = metadata.description.trim();
+  const combined = `${title} ${desc}`.trim();
+
+  if (!combined) return false;
+  if (isBoilerplateDescription(desc)) return false;
+  if (isGenericShareTitle(title) || isPlatformShareStub(title) ||
+    isPlatformChromeTitle(title) || isBarePlatformName(title)) {
+    return false;
+  }
+  if (isPlatformShareStub(desc)) return false;
+  if (title && desc && title.toLowerCase() === desc.toLowerCase() && title.length < 72) return false;
+  if (/^@[\w.]+$/.test(title)) return false;
+  if (desc.length < 50 && /^by\s+[\w\s.@]+$/i.test(desc)) return false;
+  if (/^@?\w[\w.]+\s*\(@[\w.]+\)\s*$/.test(title) && desc.length < 50) return false;
+  if (combined.length < 40) return false;
+
+  return true;
+}
+
+/** Groq/Gemini text returned a platform-generic label instead of real topic */
+function isGenericTextClassificationResult(result: ClassifyResult): boolean {
+  if (isPlatformGenericBoardName(result.board_name)) return true;
+  if (isPlatformBoardName(result.board_name)) return true;
+  if (isCatchallBoardName(result.board_name)) return true;
+
+  const title = result.title.trim();
+  if (/^social\s+(media|network|post)/i.test(title)) return true;
+  if (/^(social\s+)?(network|media|post|content|video|reel)s?$/i.test(title)) return true;
+  if (isGenericShareTitle(title) || isBarePlatformName(title)) return true;
+
+  const desc = result.description.trim();
+  if (isBoilerplateDescription(desc)) return true;
+  if (/social\s+(media|network|platform)/i.test(desc) && desc.length < 160) return true;
+
+  return false;
+}
+
+/** CDN logos / OG placeholders — not the post image (vision would hallucinate from branding) */
+function isPlatformBrandingImageUrl(imageUrl: string): boolean {
+  const u = imageUrl.toLowerCase();
+  if (/static\.cdninstagram\.com\/rsrc\.php/i.test(u)) return true;
+  if (/\.cdninstagram\.com\/rsrc\.php/i.test(u)) return true;
+  if (/fbcdn\.net\/rsrc\.php/i.test(u)) return true;
+  if (/tiktokcdn\.com.*\/logo/i.test(u)) return true;
+  return false;
+}
+
+function pickBestImage(candidates: (string | null | undefined)[]): string | null {
+  for (const raw of candidates) {
+    if (raw?.trim() && !isPlatformBrandingImageUrl(raw)) return raw.trim();
+  }
+  return null;
+}
+
+function hasUsableVisionImage(metadata: LinkMetadata): boolean {
+  return Boolean(metadata.image && !isPlatformBrandingImageUrl(metadata.image));
+}
+
+function hasUnreliableSocialMetadata(metadata: LinkMetadata, url: string): boolean {
+  if (!isSocialContentUrl(url)) return false;
+  if (isYouTubeUrl(url) && hasTrustworthyCaption(metadata, url)) return false;
+  return !hasTrustworthyCaption(metadata, url);
+}
+
+/** Instagram/TikTok etc. with login boilerplate or @handle only — text AI hallucinates */
+function needsVisionForUntrustworthySocial(metadata: LinkMetadata, url: string): boolean {
+  if (!hasUsableVisionImage(metadata) || !isSocialContentUrl(url)) return false;
+  return hasUnreliableSocialMetadata(metadata, url);
+}
+
+/** After Groq/Gemini text: upgrade to vision when pick is generic OR metadata was useless */
+function shouldUpgradeWithVision(
+  metadata: LinkMetadata,
+  url: string,
+  result: ClassifyResult,
+): boolean {
+  if (!hasUsableVisionImage(metadata)) return false;
+  if (needsVisionForUntrustworthySocial(metadata, url)) return true;
+  return isGenericTextClassificationResult(result);
+}
+
+/** Text-only AI on sparse social metadata is unreliable — do not return when vision was required */
+function shouldRejectTextOnlyAiOnSparseSocial(
+  metadata: LinkMetadata,
+  url: string,
+): boolean {
+  return hasUnreliableSocialMetadata(metadata, url);
+}
+
+async function maybeUpgradeWithVision(
+  boards: Board[],
+  metadata: LinkMetadata,
+  url: string,
+  catalog: BoardCatalog,
+  outcome: ClassificationOutcome,
+): Promise<ClassificationOutcome | null> {
+  if (!shouldUpgradeWithVision(metadata, url, outcome.result)) return null;
+
+  const reason = needsVisionForUntrustworthySocial(metadata, url)
+    ? 'untrustworthy caption (text AI unreliable)'
+    : 'generic text classification';
+
+  console.log(`Text AI needs vision — ${reason}`, {
+    source: outcome.source,
+    board: outcome.result.board_name,
+    title: outcome.result.title.slice(0, 40),
+  });
+
+  return await classifyWithGeminiVision(boards, metadata, url, catalog);
+}
+
 function isSocialContentUrl(url: string): boolean {
   try {
     return SOCIAL_CONTENT_HOST.test(new URL(url).hostname);
@@ -29,7 +162,7 @@ function isSocialContentUrl(url: string): boolean {
 }
 
 function isCommerceUrl(url: string): boolean {
-  return /amazon\.|ebay\.|etsy\.|shopify\.com|\/products?\//i.test(url);
+  return /amazon\.|ebay\.|etsy\.|shopify\.com/i.test(url);
 }
 
 const GENERIC_BOARD_NAMES = new Set([
@@ -43,6 +176,186 @@ const GENERIC_BOARD_NAMES = new Set([
 const GENERIC_MEDIA_BOARD_NAMES = new Set([
   'vídeo', 'video', 'entretenimiento', 'entertainment',
 ]);
+
+/** AI / fallback picks with no real topic — upgrade when metadata or copy signals something specific */
+const CATCHALL_BOARD_NAMES = new Set([
+  'ideas', 'inspiration', 'inspiración', 'inspiracion', 'general', 'other', 'misc', 'miscellaneous',
+]);
+
+function isCatchallBoardName(name: string): boolean {
+  return CATCHALL_BOARD_NAMES.has(name.trim().toLowerCase());
+}
+
+function isYouTubeUrl(url: string): boolean {
+  return /youtube\.com|youtu\.be/i.test(url);
+}
+
+/** YouTube links whose title looks like a song/video (Artist - Track, official video, etc.) */
+function isYouTubeMusicCandidate(metadata: LinkMetadata, url: string): boolean {
+  if (!isYouTubeUrl(url)) return false;
+  const title = metadata.title.trim();
+  if (!title || isPlatformChromeTitle(title)) return false;
+  return isLikelyMediaTitle(title);
+}
+
+/** Genre/subject keywords in AI copy or metadata — maps to catalog board names */
+const SUBJECT_KEYWORD_TO_BOARD: [RegExp, string][] = [
+  [/\b(rock|grunge|alternative|punk|metal|grime)\b/i, 'Rock'],
+  [/\b(hip[\s-]?hop|\brap\b|drill|trap)\b/i, 'Hip-Hop'],
+  [/\b(techno|berghain|gabber|hardcore)\b/i, 'Techno'],
+  [/\b(deep\s*house|tech\s*house|house\s*music|house\s*(mix|set))\b/i, 'House'],
+  [/\b(jazz|bebop|blues)\b/i, 'Jazz'],
+  [/\b(k[\s-]?pop)\b/i, 'K-Pop'],
+  [/\b(reggaeton|dembow)\b/i, 'Reggaeton'],
+  [/\b(afrobeats?|afrobeat)\b/i, 'Afrobeats'],
+  [/\b(reggae|dancehall)\b/i, 'Reggae'],
+  [/\b(electronic|edm|dubstep|trance)\b/i, 'Electronic'],
+  [/\b(classical|symphony|orchestra)\b/i, 'Classical'],
+  [/\b(country\s*music|country\s*song)\b/i, 'Country'],
+  [/\b(salsa|bachata|merengue)\b/i, 'Latin'],
+  [/\b(pop\s*music|synthpop|pop\s*song)\b/i, 'Pop'],
+  [/\b(football|soccer|premier\s*league|champions\s*league)\b/i, 'Football'],
+  [/\b(basketball|nba)\b/i, 'Basketball'],
+  [/\b(recipe|cooking|baking)\b/i, 'Recipes'],
+  [/\b(workout|crossfit|gym|fitness)\b/i, 'Fitness'],
+  [/\b(fashion|outfit|streetwear)\b/i, 'Fashion'],
+  [/\b(tattoos?|tattooing|inked|body\s*art)\b|tattoo|刺青|纹身|tatuaje/i, 'Tattoo'],
+];
+
+function inferBoardFromText(
+  text: string,
+  userBoards: string[],
+  catalog: BoardCatalog,
+): string | null {
+  const trimmed = text.trim();
+  if (!trimmed || isBoilerplateDescription(trimmed)) return null;
+
+  // Specific genres/topics before umbrella rules (e.g. "Rock Music" → Rock, not Music)
+  for (const [pattern, board] of SUBJECT_KEYWORD_TO_BOARD) {
+    if (pattern.test(trimmed)) {
+      return pickExistingOrCatalog(userBoards, board, catalog);
+    }
+  }
+
+  for (const rule of GENERIC_TOPIC_RULES) {
+    if (rule.pattern.test(trimmed)) {
+      return pickBilingualBoard(userBoards, rule.en, rule.es, catalog);
+    }
+  }
+
+  return null;
+}
+
+function upgradeCatchallBoard(
+  board: string,
+  metadata: LinkMetadata,
+  url: string,
+  userBoards: string[],
+  catalog: BoardCatalog,
+  extraText = '',
+): string {
+  if (!isCatchallBoardName(board)) return board;
+
+  const granular = inferGranularBoard(metadata, url);
+  if (granular && !isRejectableBoardName(granular)) {
+    const upgraded = pickExistingOrCatalog(userBoards, granular, catalog);
+    logCatchallUpgrade(board, upgraded, 'granular-metadata', metadata);
+    return upgraded;
+  }
+
+  const topic = inferTopicBoard(metadata, url, userBoards, catalog);
+  if (topic && !isCatchableTopicForCatchall(topic, board)) {
+    const upgraded = pickExistingOrCatalog(userBoards, topic, catalog);
+    logCatchallUpgrade(board, upgraded, 'topic-keywords', metadata);
+    return upgraded;
+  }
+
+  if (isYouTubeMusicCandidate(metadata, url)) {
+    const upgraded = pickMusicBoardFromMetadata(metadata, userBoards, catalog);
+    logCatchallUpgrade(board, upgraded, 'youtube-music-title', metadata);
+    return upgraded;
+  }
+
+  const fromText = inferBoardFromText(
+    `${metadata.title} ${extraText}`.trim(),
+    userBoards,
+    catalog,
+  );
+  if (fromText && !isCatchallBoardName(fromText)) {
+    logCatchallUpgrade(board, fromText, 'text-keywords', metadata);
+    return fromText;
+  }
+
+  return board;
+}
+
+function logCatchallUpgrade(from: string, to: string, reason: string, metadata: LinkMetadata): void {
+  if (from.toLowerCase() === to.toLowerCase()) return;
+  console.log('Catchall board upgraded', {
+    from,
+    to,
+    reason,
+    title: metadata.title.slice(0, 80),
+  });
+}
+
+/** After AI writes title + description, board must match — fixes Ideas + "Rock Music" mismatches */
+function reconcileBoardWithClassification(
+  result: ClassifyResult,
+  metadata: LinkMetadata,
+  url: string,
+  userBoards: string[],
+  catalog: BoardCatalog,
+): ClassifyResult {
+  const copyText = `${result.title} ${result.description}`.trim();
+
+  // Tier 1 → 2 resolution (user boards, then catalog) before catch-all upgrades
+  if (isCatchallBoardName(result.board_name)) {
+    const tiered = resolveBoardTiered(metadata, url, userBoards, catalog, copyText);
+    if (tiered) {
+      logCatchallUpgrade(
+        result.board_name,
+        tiered.board_name,
+        tiered.tier === 'user' ? 'tier-1-user' : 'tier-2-catalog',
+        metadata,
+      );
+      result.board_name = tiered.board_name;
+      result.is_new_board = tiered.tier === 'catalog' &&
+        !userBoards.some((b) => b.toLowerCase() === tiered.board_name.toLowerCase());
+      return result;
+    }
+  }
+
+  let board = upgradeCatchallBoard(result.board_name, metadata, url, userBoards, catalog, copyText);
+
+  const fromCopy = inferBoardFromText(copyText, userBoards, catalog);
+  if (fromCopy) {
+    const currentLower = board.trim().toLowerCase();
+    const copyLower = fromCopy.toLowerCase();
+    if (currentLower !== copyLower) {
+      const shouldUseCopy =
+        isCatchallBoardName(board) ||
+        isBroadBoardName(board) ||
+        (isMusicRelatedBoardName(board) && isMusicRelatedBoardName(fromCopy));
+
+      if (shouldUseCopy) {
+        logCatchallUpgrade(board, fromCopy, 'ai-copy-topic', metadata);
+        board = fromCopy;
+      }
+    }
+  }
+
+  if (board !== result.board_name) {
+    result.board_name = board;
+    result.is_new_board = !userBoards.some((b) => b.toLowerCase() === board.toLowerCase());
+  }
+
+  return result;
+}
+
+function isCatchableTopicForCatchall(topic: string, catchall: string): boolean {
+  return topic.toLowerCase() === catchall.toLowerCase();
+}
 
 /** Umbrella categories — always split into a specific sport, genre, or topic */
 const BROAD_BOARD_NAMES = new Set([
@@ -62,7 +375,7 @@ type BoardCatalog = {
 /** Fallback if board_catalog table is empty or unreachable */
 const FALLBACK_CATALOG: BoardCatalog = {
   names: [
-    'Football', 'Basketball', 'Tennis', 'Hip-Hop', 'Techno', 'Jazz', 'Fashion', 'Shopping', 'Home',
+    'Football', 'Basketball', 'Tennis', 'Hip-Hop', 'Techno', 'Jazz', 'Rock', 'Pop', 'Music', 'Fashion', 'Shopping', 'Home',
     'Recipes', 'Design', 'Programming', 'Art', 'Inspiration', 'Ideas', 'Film', 'Gaming',
   ],
   groupsText:
@@ -118,6 +431,98 @@ function findInCatalog(name: string, catalog: BoardCatalog): string | undefined 
   return catalog.names.find((c) => c.toLowerCase() === name.trim().toLowerCase());
 }
 
+function pickCatalogBoard(name: string, catalog: BoardCatalog): string | null {
+  return findInCatalog(name, catalog) ?? null;
+}
+
+/** Tier 1 — topic keywords that match a board the user already has */
+function matchUserBoardTopic(text: string, userBoards: string[]): string | null {
+  if (!text.trim() || isAmbiguousOfTitle(text)) return null;
+  for (const rule of GENERIC_TOPIC_RULES) {
+    if (!rule.pattern.test(text)) continue;
+    const user = userBoards.find((b) => b.toLowerCase() === rule.en.toLowerCase()) ??
+      userBoards.find((b) => b.toLowerCase() === rule.es.toLowerCase());
+    if (user) return user;
+  }
+  return null;
+}
+
+/** Tier 2 — topic keywords mapped to board_catalog only (user boards already ruled out) */
+function matchCatalogTopic(text: string, catalog: BoardCatalog): string | null {
+  if (!text.trim() || isBoilerplateDescription(text)) return null;
+
+  for (const [pattern, board] of SUBJECT_KEYWORD_TO_BOARD) {
+    if (pattern.test(text)) {
+      return pickCatalogBoard(board, catalog);
+    }
+  }
+
+  for (const rule of GENERIC_TOPIC_RULES) {
+    if (!rule.pattern.test(text)) continue;
+    const catalogBoard = pickCatalogBoard(rule.en, catalog) ?? pickCatalogBoard(rule.es, catalog);
+    if (catalogBoard) return catalogBoard;
+  }
+
+  return null;
+}
+
+type TieredBoardMatch = {
+  board_name: string;
+  tier: 'user' | 'catalog';
+};
+
+/**
+ * Deterministic board resolution — always in order:
+ * 1. User boards  2. board_catalog  (never Ideas here)
+ */
+function resolveBoardTiered(
+  metadata: LinkMetadata,
+  url: string,
+  userBoards: string[],
+  catalog: BoardCatalog,
+  extraText = '',
+): TieredBoardMatch | null {
+  const title = metadata.title.trim();
+  const desc = metadata.description.trim();
+  const fullText = `${title} ${desc} ${extraText}`.trim();
+
+  // —— Tier 1: user boards ——
+  for (const board of userBoards) {
+    if (isPlatformBoardName(board)) continue;
+    if (titleMentionsBoard(title, board) &&
+        !isIncidentalUserBoardMatch(metadata, url, board, userBoards, catalog)) {
+      return { board_name: board, tier: 'user' };
+    }
+  }
+
+  const userFromTitle = matchUserBoardTopic(title, userBoards);
+  if (userFromTitle) return { board_name: userFromTitle, tier: 'user' };
+
+  if (title.length < 20 && desc && !isBoilerplateDescription(desc)) {
+    const userFromDesc = matchUserBoardTopic(desc, userBoards);
+    if (userFromDesc) return { board_name: userFromDesc, tier: 'user' };
+  }
+
+  // —— Tier 2: board_catalog ——
+  const catalogFromText = matchCatalogTopic(fullText, catalog);
+  if (catalogFromText) {
+    return { board_name: catalogFromText, tier: 'catalog' };
+  }
+
+  const granular = inferGranularBoard(metadata, url);
+  if (granular) {
+    const catalogBoard = pickCatalogBoard(granular, catalog);
+    if (catalogBoard) return { board_name: catalogBoard, tier: 'catalog' };
+  }
+
+  if (isYouTubeMusicCandidate(metadata, url)) {
+    const music = resolveMusicCatalogBoard(userBoards, catalog);
+    return { board_name: music, tier: 'catalog' };
+  }
+
+  return null;
+}
+
 function formatAllowedBoardsPrompt(catalog: BoardCatalog, userBoards: string[]): string {
   const preferred = userBoards.filter((board) => {
     if (isPlatformBoardName(board) || isGenericBoardName(board)) return false;
@@ -125,8 +530,8 @@ function formatAllowedBoardsPrompt(catalog: BoardCatalog, userBoards: string[]):
   });
 
   const preferredBlock = preferred.length > 0
-    ? `USER BOARDS (highest priority — if the link fits one, pick that exact name):\n${preferred.join(', ')}\n\n`
-    : '';
+    ? `STEP 1 — USER BOARDS (check FIRST; pick only if the link topic genuinely fits):\n${preferred.join(', ')}\n\n`
+    : 'STEP 1 — USER BOARDS: (none yet — skip to catalog)\n\n';
 
   const extra = preferred.filter(
     (board) => !catalog.names.some((name) => name.toLowerCase() === board.toLowerCase()),
@@ -135,7 +540,7 @@ function formatAllowedBoardsPrompt(catalog: BoardCatalog, userBoards: string[]):
     ? `${catalog.groupsText}\n(Also allowed: ${extra.join(', ')})`
     : catalog.groupsText;
 
-  return `${preferredBlock}CATALOG BOARDS:\n${catalogBlock}`;
+  return `${preferredBlock}STEP 2 — CATALOG BOARDS (if no user board fits, pick the best catalog name — e.g. Rock, Music, Pop, Recipes):\n${catalogBlock}\n\nSTEP 3 — NEVER pick Ideas, Inspiration, or other catch-alls when any catalog board fits.`;
 }
 
 type GeminiPart =
@@ -144,8 +549,46 @@ type GeminiPart =
 
 const GENERIC_SHARE_TITLES = /^(instagram share|shared from instagram|youtube|tiktok|shared link|web page)$/i;
 
+/** OS share sheet stubs — "Compartido en Instagram", "Shared on TikTok", etc. */
+function isPlatformShareStub(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (new RegExp(
+    `^(?:shared\\s+(?:on|from)|compartido\\s+en|compartir\\s+(?:en|desde)|publicado\\s+en|partag[eé]\\s+(?:sur|de)|condiviso\\s+su|geteilt\\s+(?:auf|in)|compartilhado\\s+(?:no|em)|shared\\s+via)\\s+(?:en\\s+|on\\s+|from\\s+)?(${PLATFORM_NAME_ALT})\\s*$`,
+    'i',
+  ).test(trimmed)) {
+    return true;
+  }
+  if (new RegExp(`^(${PLATFORM_NAME_ALT})\\s+(?:share|compartido|partage|condivisione)$`, 'i').test(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
+function isUsableMetadataTitle(title: string): boolean {
+  const trimmed = title.trim();
+  if (!trimmed) return false;
+  if (isGenericShareTitle(trimmed)) return false;
+  if (isPlatformShareStub(trimmed)) return false;
+  if (isPlatformChromeTitle(trimmed)) return false;
+  if (isBarePlatformName(trimmed)) return false;
+  return true;
+}
+
 const MAX_BOOKMARK_TITLE = 40;
 const MAX_BOOKMARK_DESC = 500;
+
+/** All user-facing bookmark copy is written in English */
+const AI_COPY_LANGUAGE_RULE =
+  'Write title and description in English only. Translate or summarize non-English source text — do not copy foreign-language captions verbatim.';
+
+/** Generic copy rules — no concrete examples (models anchor on few-shot samples and hallucinate) */
+const COPY_TITLE_RULES = `TITLE RULES:
+- Format: "{Topic}: {Subject}" — Topic must match board; Subject MUST come ONLY from page title/description above
+- Max ${MAX_BOOKMARK_TITLE} characters
+- Never invent names, artists, dishes, teams, or subjects absent from the metadata
+- Never copy wording from these instructions — only from the actual page content
+- Use genre/content labels (Freestyle, Track, Recipe, Match highlights, Tattoo, etc.) ONLY when metadata confirms that type AND board matches`;
 
 type ClassifyResult = {
   board_name: string;
@@ -202,6 +645,7 @@ function isGenericShareTitle(title: string): boolean {
   if (/^https?:\/\//i.test(trimmed)) return true;
   if (GENERIC_SHARE_TITLES.test(trimmed)) return true;
   if (isBarePlatformName(trimmed)) return true;
+  if (isPlatformShareStub(trimmed)) return true;
   if (new RegExp(`^shared from (${PLATFORM_NAME_ALT})\\b`, 'i').test(trimmed)) return true;
   if (new RegExp(`^(${PLATFORM_NAME_ALT})\\s+share$`, 'i').test(trimmed)) return true;
   return false;
@@ -221,9 +665,15 @@ function pickBestTitle(candidates: (string | undefined)[], url = ''): string | u
 
 function pickBestDescription(candidates: (string | undefined)[]): string {
   let best = '';
+  let bestScore = -1;
   for (const raw of candidates) {
     const desc = (raw ?? '').trim();
-    if (desc.length > best.length) best = desc;
+    if (!desc) continue;
+    const score = isBoilerplateDescription(desc) ? desc.length - 10_000 : desc.length;
+    if (score > bestScore) {
+      bestScore = score;
+      best = desc;
+    }
   }
   return best;
 }
@@ -273,7 +723,7 @@ function normalizeUrl(url: string): string {
   }
 }
 
-const CACHE_VERSION = 19;
+const CACHE_VERSION = 36;
 const CACHE_TTL_MS = 60 * 24 * 60 * 60 * 1000;
 const CACHE_STRIP_QUERY = new Set(['fbclid', 'gclid', 'si', 'is', 'feature', 'igsh', 'igshid']);
 
@@ -340,6 +790,10 @@ function shouldCacheClassification(
   if (result.board_name.toLowerCase() === 'ideas') return false;
   if (result.board_name === 'Shopping' && !isCommerceUrl(url)) return false;
   if (result.board_name === 'Tutorials' && isSparseMetadata(metadata, url)) return false;
+  if (isGenericTextClassificationResult(result)) return false;
+  if (hasUnreliableSocialMetadata(metadata, url)) return false;
+  if (needsVisionForUntrustworthySocial(metadata, url)) return false;
+  if (isPlatformGenericBoardName(result.board_name)) return false;
   if (isGenericShareTitle(result.title)) return false;
   if (!result.title.trim() || !result.description.trim() || !result.board_name.trim()) return false;
   return true;
@@ -514,16 +968,57 @@ function shouldUseVision(
   url: string,
   boardPick: { board_name: string } | null,
 ): boolean {
-  if (!metadata.image) return false;
+  if (!hasUsableVisionImage(metadata)) return false;
   if (!isSparseMetadata(metadata, url)) return false;
   if (!isSocialPostUrl(url)) return false;
   return !boardPick || isGenericBoardName(boardPick.board_name);
 }
 
+/** Genre boards when the catalog has no umbrella "Music" entry */
+const MUSIC_CATALOG_FALLBACK_ORDER = [
+  'Rock', 'Pop', 'Hip-Hop', 'Jazz', 'Electronic', 'House', 'Techno', 'R&B', 'Classical', 'Latin', 'Folk',
+];
+
+function resolveMusicCatalogBoard(userBoards: string[], catalog: BoardCatalog): string {
+  for (const genre of MUSIC_CATALOG_FALLBACK_ORDER) {
+    const existing = userBoards.find((b) => b.toLowerCase() === genre.toLowerCase());
+    if (existing) return existing;
+    const inCatalog = findInCatalog(genre, catalog);
+    if (inCatalog) return inCatalog;
+  }
+  return findInCatalog('Ideas', catalog) ?? catalog.names[0] ?? 'Rock';
+}
+
+function pickMusicBoardFromMetadata(
+  metadata: LinkMetadata,
+  userBoards: string[],
+  catalog: BoardCatalog,
+): string {
+  const title = metadata.title.trim();
+  for (const [pattern, board] of SUBJECT_KEYWORD_TO_BOARD) {
+    if (pattern.test(title)) {
+      return pickExistingOrCatalog(userBoards, board, catalog);
+    }
+  }
+  return resolveMusicCatalogBoard(userBoards, catalog);
+}
+
 function pickExistingOrCatalog(userBoards: string[], catalogName: string, catalog: BoardCatalog): string {
   const existing = userBoards.find((b) => b.toLowerCase() === catalogName.toLowerCase());
   if (existing) return existing;
-  return findInCatalog(catalogName, catalog) ?? findInCatalog('Shopping', catalog) ?? catalog.names[0] ?? catalogName;
+  const inCatalog = findInCatalog(catalogName, catalog);
+  if (inCatalog) return inCatalog;
+
+  const lower = catalogName.trim().toLowerCase();
+  if (lower === 'music' || lower === 'música' || lower === 'musica') {
+    return resolveMusicCatalogBoard(userBoards, catalog);
+  }
+
+  // Never fall back to Shopping for unknown topic boards
+  const ideas = findInCatalog('Ideas', catalog);
+  if (ideas) return ideas;
+  const safe = catalog.names.find((n) => !['shopping', 'home', 'fashion'].includes(n.toLowerCase()));
+  return safe ?? catalogName;
 }
 
 function pickBilingualBoard(
@@ -545,7 +1040,7 @@ function pickBilingualBoard(
 function isBoilerplateDescription(description: string): boolean {
   const d = description.trim().toLowerCase();
   if (d.length < 20) return true;
-  return /\b(subscribe|like and subscribe|share your videos|upload your videos|upload original content|watch full video|enjoy the videos|share it all with friends|youtube\.com|tiktok\.com|instagram\.com)\b/i.test(d);
+  return /\b(subscribe|like and subscribe|share your videos|upload your videos|upload original content|watch full video|enjoy the videos|share it all with friends|create an account or log in|log in to|sign up to|share what you.re into|see instagram photos|see photos and videos|watch on tiktok|download the app|get the app|inicia sesi[oó]n|crea una cuenta|reg[ií]strate|youtube\.com|tiktok\.com|instagram\.com)\b/i.test(d);
 }
 
 /**
@@ -720,6 +1215,7 @@ const AMBIGUOUS_BOARD_WORDS = new Set([
   'music', 'video', 'videos', 'book', 'books', 'read', 'sport', 'sports', 'travel', 'fitness',
   'business', 'play', 'season', 'seasons', 'episode', 'episodes', 'trailer', 'watch', 'review',
   'ideas', 'film', 'cine', 'moda', 'arte', 'hogar', 'comida', 'música', 'musica',
+  'medicine', 'medicina', 'science', 'history', 'nature', 'dream', 'gold', 'silver',
 ]);
 
 /**
@@ -761,8 +1257,109 @@ function titleMentionsBoard(title: string, boardName: string): boolean {
   return new RegExp(`\\b${escaped}\\b`, 'i').test(title);
 }
 
+/** Song/video titles: "Artist - Track", official video, lyrics, etc. */
+const MEDIA_TITLE_MARKERS =
+  /\b(official\s*(video|audio|mv|lyric|visualizer)|music\s*video|\bmv\b|lyrics?|audio\s*only|remix|live\s*(session|performance|at|from)|vevo|ft\.|feat\.|featuring)\b/i;
+
+function isLikelyMediaTitle(title: string): boolean {
+  const trimmed = title.trim();
+  if (!trimmed) return false;
+  if (MEDIA_TITLE_MARKERS.test(trimmed)) return true;
+  return /^[^–\-—|]{2,}\s*[-–—|]\s*[^–\-—|]{2,}/.test(trimmed);
+}
+
+function isMusicRelatedBoardName(name: string): boolean {
+  const lower = name.trim().toLowerCase();
+  if (MUSIC_BOARDS.has(lower)) return true;
+  return /\b(music|m[uú]sica|song|cancion|rock|pop|jazz|hip[\s-]?hop|rap|band|concert|album|playlist)\b/i.test(lower);
+}
+
+/**
+ * User board picked only because its name appears in the title (song name, brand, etc.)
+ * — not because the link topic matches the board subject.
+ */
+function isIncidentalUserBoardMatch(
+  metadata: LinkMetadata,
+  url: string,
+  boardName: string,
+  userBoards: string[],
+  catalog: BoardCatalog,
+): boolean {
+  const normalizedBoard = boardName.trim();
+  if (!userBoards.some((b) => b.toLowerCase() === normalizedBoard.toLowerCase())) {
+    return false;
+  }
+
+  const title = metadata.title.trim();
+  if (!title || !titleMentionsBoard(title, normalizedBoard)) {
+    return false;
+  }
+
+  const granular = inferGranularBoard(metadata, url);
+  if (granular && granular.toLowerCase() !== normalizedBoard.toLowerCase()) {
+    return true;
+  }
+
+  const topicHit = matchGenericTopic(title, userBoards, catalog);
+  if (topicHit && topicHit.toLowerCase() !== normalizedBoard.toLowerCase()) {
+    return true;
+  }
+
+  if (isLikelyMediaTitle(title) && !isMusicRelatedBoardName(normalizedBoard)) {
+    return true;
+  }
+
+  if (!normalizedBoard.includes(' ')) {
+    const titleWords = title.replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean);
+    if (titleWords.length >= 2) {
+      const desc = metadata.description.trim();
+      const descReinforces = desc.length >= 40 &&
+        !isBoilerplateDescription(desc) &&
+        (titleMentionsBoard(desc, normalizedBoard) ||
+          matchGenericTopic(desc, userBoards, catalog)?.toLowerCase() === normalizedBoard.toLowerCase());
+      if (!descReinforces) return true;
+    }
+  }
+
+  return false;
+}
+
+function resolveBoardAfterWeakUserMatch(
+  metadata: LinkMetadata,
+  url: string,
+  userBoards: string[],
+  catalog: BoardCatalog,
+): string {
+  const granular = inferGranularBoard(metadata, url);
+  if (granular && !isRejectableBoardName(granular)) {
+    return pickExistingOrCatalog(userBoards, granular, catalog);
+  }
+
+  const topic = inferTopicBoard(metadata, url, userBoards, catalog);
+  if (topic && !isRejectableBoardName(topic)) {
+    return pickExistingOrCatalog(userBoards, topic, catalog);
+  }
+
+  if (isYouTubeMusicCandidate(metadata, url)) {
+    return pickMusicBoardFromMetadata(metadata, userBoards, catalog);
+  }
+
+  return pickExistingOrCatalog(userBoards, 'Ideas', catalog);
+}
+
+function logClassifyMetadata(metadata: LinkMetadata, url: string, userBoards: string[], provider: string): void {
+  console.log(`${provider}: metadata`, {
+    url: url.slice(0, 120),
+    title: metadata.title.slice(0, 100),
+    descLen: metadata.description.length,
+    descPreview: metadata.description.slice(0, 120) || '(none)',
+    userBoards: userBoards.slice(0, 15),
+  });
+}
+
 function inferTopicBoard(
   metadata: LinkMetadata,
+  url: string,
   userBoards: string[],
   catalog: BoardCatalog,
 ): string | null {
@@ -770,6 +1367,15 @@ function inferTopicBoard(
   if (title) {
     const fromTitle = matchGenericTopic(title, userBoards, catalog);
     if (fromTitle) return fromTitle;
+
+    if (isYouTubeMusicCandidate(metadata, url)) {
+      const granular = inferGranularBoard(metadata, url);
+      if (granular && !isRejectableBoardName(granular)) {
+        return pickExistingOrCatalog(userBoards, granular, catalog);
+      }
+      return pickMusicBoardFromMetadata(metadata, userBoards, catalog);
+    }
+
     // Long specific title with no keyword match — don't trust description boilerplate
     if (title.length >= 20) return null;
   }
@@ -785,16 +1391,12 @@ function resolveFallbackBoard(
   userBoards: string[],
   catalog: BoardCatalog,
 ): string {
-  if (/\/products?\//i.test(url)) {
-    return pickExistingOrCatalog(userBoards, 'Fashion', catalog);
-  }
-  if (isCommerceUrl(url)) {
-    return pickExistingOrCatalog(userBoards, 'Shopping', catalog);
-  }
-
   for (const board of userBoards) {
     if (isPlatformBoardName(board)) continue;
-    if (titleMentionsBoard(metadata.title, board)) return board;
+    if (titleMentionsBoard(metadata.title, board) &&
+        !isIncidentalUserBoardMatch(metadata, url, board, userBoards, catalog)) {
+      return board;
+    }
   }
 
   const specific = inferGranularBoard(metadata, url);
@@ -802,8 +1404,12 @@ function resolveFallbackBoard(
     return pickExistingOrCatalog(userBoards, specific, catalog);
   }
 
-  const topic = inferTopicBoard(metadata, userBoards, catalog);
+  const topic = inferTopicBoard(metadata, url, userBoards, catalog);
   if (topic && !isRejectableBoardName(topic)) return topic;
+
+  if (isYouTubeMusicCandidate(metadata, url)) {
+    return pickMusicBoardFromMetadata(metadata, userBoards, catalog);
+  }
 
   return pickExistingOrCatalog(userBoards, 'Ideas', catalog);
 }
@@ -828,27 +1434,28 @@ function aiUnavailableFallbackOutcome(
   catalog: BoardCatalog,
 ): ClassificationOutcome {
   const boardName = pickAiUnavailableBoard(boards.map((b) => b.name), catalog);
-  console.log('Classified with generic fallback (AI unavailable)', { board: boardName });
+  console.log('Classified catch-all (AI + heuristics exhausted)', { board: boardName });
   return heuristicClassificationOutcome(boards, metadata, url, boardName, catalog);
 }
 
-/** Primary classifier: commerce URLs + generic topic keywords (title-first). */
+/** Keyword heuristics when AI is unavailable or exhausted */
 function tryHeuristicBoard(
   metadata: LinkMetadata,
   url: string,
   userBoards: string[],
   catalog: BoardCatalog,
 ): { confident: boolean; board_name: string } | null {
-  if (/\/products?\//i.test(url)) {
-    return { confident: true, board_name: pickExistingOrCatalog(userBoards, 'Fashion', catalog) };
-  }
-  if (isCommerceUrl(url)) {
-    return { confident: true, board_name: pickExistingOrCatalog(userBoards, 'Shopping', catalog) };
-  }
-
   // "X of Y" titles and entity-only names → not confident; AI + user boards decide
   if (isAmbiguousOfTitle(metadata.title.trim())) {
     return null;
+  }
+
+  if (isYouTubeMusicCandidate(metadata, url)) {
+    const granular = inferGranularBoard(metadata, url);
+    const boardName = granular && !isRejectableBoardName(granular)
+      ? pickExistingOrCatalog(userBoards, granular, catalog)
+      : pickMusicBoardFromMetadata(metadata, userBoards, catalog);
+    return { confident: true, board_name: boardName };
   }
 
   const specific = inferGranularBoard(metadata, url);
@@ -856,12 +1463,58 @@ function tryHeuristicBoard(
     return { confident: true, board_name: pickExistingOrCatalog(userBoards, specific, catalog) };
   }
 
-  const topic = inferTopicBoard(metadata, userBoards, catalog);
+  const topic = inferTopicBoard(metadata, url, userBoards, catalog);
   if (topic && !isRejectableBoardName(topic)) {
     return { confident: true, board_name: topic };
   }
 
   return null;
+}
+
+/** Plain title + description from metadata — no genre/board prefixes (heuristics path) */
+function plainCopyFromMetadata(metadata: LinkMetadata): { title: string; description: string } {
+  const title = youtubeVideoTitle(metadata.title).trim().slice(0, MAX_BOOKMARK_TITLE);
+  const description = summarizeDescription(metadata.description, MAX_BOOKMARK_DESC);
+  return { title, description };
+}
+
+async function classifyWithDeterministicBoard(
+  boards: Board[],
+  metadata: LinkMetadata,
+  url: string,
+  boardName: string,
+  catalog: BoardCatalog,
+  groqEnabled: boolean,
+  geminiEnabled: boolean,
+): Promise<ClassificationOutcome> {
+  const boardList = boards.map((b) => b.name);
+  const existing = boards.find((b) => b.name.toLowerCase() === boardName.toLowerCase());
+  const boardPick = {
+    board_name: existing?.name ?? boardName,
+    is_new_board: !existing,
+  };
+
+  const groqKey = Deno.env.get('GROQ_API_KEY');
+  if (groqEnabled && groqKey) {
+    const { result, copyFrom } = await buildBoardOnlyResult(
+      boards, metadata, url, boardPick, boardList, catalog,
+      () => generateCopyWithGroq(metadata, url, boardPick.board_name, groqKey),
+    );
+    console.log('Deterministic board + Groq copy', { board: boardPick.board_name, copyFrom });
+    return { source: 'groq', result };
+  }
+
+  const geminiKey = Deno.env.get('GEMINI_API_KEY');
+  if (geminiEnabled && geminiKey) {
+    const { result, copyFrom } = await buildBoardOnlyResult(
+      boards, metadata, url, boardPick, boardList, catalog,
+      () => generateCopyWithGemini(metadata, url, boardPick.board_name, geminiKey),
+    );
+    console.log('Deterministic board + Gemini copy', { board: boardPick.board_name, copyFrom });
+    return { source: 'gemini', result };
+  }
+
+  return heuristicClassificationOutcome(boards, metadata, url, boardPick.board_name, catalog);
 }
 
 function heuristicClassificationOutcome(
@@ -872,19 +1525,21 @@ function heuristicClassificationOutcome(
   catalog: BoardCatalog,
 ): ClassificationOutcome {
   const boardList = boards.map((b) => b.name);
+  const plain = plainCopyFromMetadata(metadata);
   return {
     source: 'heuristic',
     result: polishClassifyResult(
       {
         board_name: boardName,
-        title: buildTitleFromMetadata(metadata, url, boardName),
-        description: buildDescriptionFromMetadata(metadata, url, boardName),
+        title: plain.title,
+        description: plain.description,
         is_new_board: !boards.some((b) => b.name.toLowerCase() === boardName.toLowerCase()),
       },
       metadata,
       url,
       boardList,
       catalog,
+      { plainCopy: true },
     ),
   };
 }
@@ -892,6 +1547,198 @@ function heuristicClassificationOutcome(
 function cleanYouTubeUrl(url: string): string | null {
   const id = extractYouTubeVideoId(url);
   return id ? `https://www.youtube.com/watch?v=${id}` : null;
+}
+
+function extractInstagramMediaRef(url: string): { kind: 'p' | 'reel' | 'tv'; id: string } | null {
+  const match = url.match(/instagram\.com\/(p|reel|tv)\/([A-Za-z0-9_-]+)/i);
+  if (!match) return null;
+  return { kind: match[1].toLowerCase() as 'p' | 'reel' | 'tv', id: match[2] };
+}
+
+function parseInstagramEmbedCaption(html: string): string | null {
+  const anchor = html.indexOf('edge_media_to_caption');
+  if (anchor < 0) return null;
+
+  const markers = ['\\"text\\":\\"', '"text":"'];
+  for (const marker of markers) {
+    const start = html.indexOf(marker, anchor);
+    if (start < 0) continue;
+
+    let i = start + marker.length;
+    let raw = '';
+    while (i < html.length) {
+      const ch = html[i];
+      if (ch === '\\') {
+        const next = html[i + 1];
+        if (next === '"') break;
+        raw += ch + (next ?? '');
+        i += next ? 2 : 1;
+        continue;
+      }
+      if (ch === '"' && marker === '"text":"') break;
+      raw += ch;
+      i += 1;
+    }
+
+    if (!raw) continue;
+
+    const normalized = raw.replace(/\\\\/g, '\\');
+    for (const candidate of [normalized, raw]) {
+      try {
+        const parsed = JSON.parse(`"${candidate}"`).trim();
+        if (parsed.length >= 8) return parsed;
+      } catch {
+        // try next normalization
+      }
+    }
+  }
+
+  return null;
+}
+
+function unescapeInstagramJsonUrl(raw: string): string {
+  return raw
+    .replace(/\\\\\//g, '/')
+    .replace(/\\\//g, '/')
+    .replace(/\\u0026/gi, '&')
+    .replace(/\\\\/g, '\\')
+    .trim();
+}
+
+function parseInstagramDisplayUrl(html: string): string | null {
+  let searchFrom = 0;
+  while (searchFrom < html.length) {
+    const anchor = html.indexOf('display_url', searchFrom);
+    if (anchor < 0) break;
+    searchFrom = anchor + 11;
+
+    const slice = html.slice(anchor, anchor + 800);
+    const markers = ['\\"display_url\\":\\"', 'display_url\\":\\"', '"display_url":"'];
+    for (const marker of markers) {
+      const rel = slice.indexOf(marker);
+      if (rel < 0) continue;
+
+      let i = anchor + rel + marker.length;
+      let raw = '';
+      while (i < html.length) {
+        const ch = html[i];
+        if (ch === '\\') {
+          const next = html[i + 1];
+          if (next === '"') break;
+          raw += ch + (next ?? '');
+          i += next ? 2 : 1;
+          continue;
+        }
+        if (ch === '"') break;
+        raw += ch;
+        i += 1;
+      }
+
+      if (!raw.includes('instagram') && !raw.includes('scontent')) continue;
+      const url = unescapeInstagramJsonUrl(raw);
+      if (url.startsWith('http') && !isPlatformBrandingImageUrl(url)) return url;
+    }
+  }
+  return null;
+}
+
+function parseInstagramEmbedImage(html: string): string | null {
+  const display = parseInstagramDisplayUrl(html);
+  if (display) return display;
+
+  const normalized = html.replace(/\\\/\//g, 'https://').replace(/\\\//g, '/');
+  const urls = [
+    ...html.matchAll(/https:\/\/scontent[^"'\\s<>]+\.(?:jpg|jpeg|webp)/gi),
+    ...normalized.matchAll(/https:\/\/scontent[^"'\\s<>]+\.(?:jpg|jpeg|webp)/gi),
+  ].map((m) => m[0]);
+
+  const unique = [...new Set(urls)];
+  const postImages = unique.filter(
+    (u) => /t51\.(2885-15|82787-15)/.test(u) && !isPlatformBrandingImageUrl(u),
+  );
+  if (postImages.length > 0) return postImages[0];
+
+  return unique.find((u) => !/-19\//.test(u) && !isPlatformBrandingImageUrl(u)) ?? null;
+}
+
+function summarizeInstagramCaptionAsTitle(caption: string): string {
+  const line = caption.split('\n').map((l) => l.trim()).find((l) => l.length >= 3 && !/^#/.test(l));
+  const first = line ?? caption.split('\n')[0]?.trim() ?? caption;
+  return first.length > 120 ? `${first.slice(0, 117)}…` : first;
+}
+
+async function fetchInstagramEmbedMetadata(url: string): Promise<Partial<LinkMetadata>> {
+  const ref = extractInstagramMediaRef(url);
+  if (!ref) return {};
+
+  const embedUrls = [
+    `https://www.instagram.com/${ref.kind}/${ref.id}/embed/`,
+    `https://www.instagram.com/p/${ref.id}/embed/`,
+    `https://www.instagram.com/${ref.kind}/${ref.id}/embed/captioned/`,
+  ];
+
+  let lastError = 'no embed response';
+
+  for (const embedUrl of [...new Set(embedUrls)]) {
+    for (const userAgent of [MOBILE_UA, BROWSER_UA]) {
+      try {
+        const res = await fetch(embedUrl, {
+          headers: {
+            'User-Agent': userAgent,
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9,es;q=0.8',
+            Referer: 'https://www.instagram.com/',
+          },
+          redirect: 'follow',
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!res.ok) {
+          lastError = `HTTP ${res.status}`;
+          continue;
+        }
+
+        const html = (await res.text()).slice(0, 500_000);
+        const caption = parseInstagramEmbedCaption(html);
+        const image = parseInstagramEmbedImage(html);
+        if (!caption && !image) {
+          lastError = 'embed HTML without caption/image';
+          continue;
+        }
+
+        console.log('Instagram embed metadata', {
+          embedUrl,
+          captionLen: caption?.length ?? 0,
+          hasImage: Boolean(image),
+        });
+
+        return {
+          title: caption ? summarizeInstagramCaptionAsTitle(caption) : undefined,
+          description: caption ?? undefined,
+          image: image ?? undefined,
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+      }
+    }
+  }
+
+  console.warn('Instagram embed fetch failed', { url: url.slice(0, 120), lastError });
+  return {};
+}
+
+function mergeSocialMetadata(
+  metadata: LinkMetadata,
+  url: string,
+  shareTitle: string,
+  embed: Partial<LinkMetadata>,
+): LinkMetadata {
+  const shareCaption = isGenericShareTitle(shareTitle) ? '' : shareTitle.trim();
+
+  return sanitizeMetadata({
+    title: pickBestTitle([shareCaption, embed.title, metadata.title], url) ?? metadata.title,
+    description: pickBestDescription([shareCaption, embed.description, metadata.description]),
+    image: pickBestImage([embed.image, metadata.image]),
+  });
 }
 
 async function fetchMicrolink(url: string): Promise<Partial<LinkMetadata>> {
@@ -906,7 +1753,7 @@ async function fetchMicrolink(url: string): Promise<Partial<LinkMetadata>> {
     return {
       title: data.data.title ?? undefined,
       description: data.data.description ?? undefined,
-      image: data.data.image?.url ?? data.data.logo?.url ?? null,
+      image: data.data.image?.url ?? null,
     };
   } catch {
     return {};
@@ -968,7 +1815,7 @@ async function fetchExternalMetadata(url: string): Promise<ExternalMetadata> {
 
   const title = pickBestTitle([noembed.title, oembed.title, microlink.title], url);
   const description = pickBestDescription([noembed.description, oembed.description, microlink.description]);
-  const image = noembed.image ?? oembed.image ?? microlink.image ?? null;
+  const image = pickBestImage([noembed.image, oembed.image, microlink.image]);
 
   if (!title && !description && !image) return {};
 
@@ -984,22 +1831,42 @@ async function fetchLinkMetadata(url: string, shareTitle: string): Promise<LinkM
   const normalizedUrl = normalizeUrl(url);
   const youtubeClean = cleanYouTubeUrl(normalizedUrl);
   const fetchUrl = youtubeClean ?? normalizedUrl;
-  const fallbackTitle = isGenericShareTitle(shareTitle) ? fetchUrl : shareTitle;
+  const shareCaption = isGenericShareTitle(shareTitle) ? '' : shareTitle.trim();
+  const fallbackTitle = shareCaption || fetchUrl;
   const youtubeId = extractYouTubeVideoId(fetchUrl);
   const youtubeThumb = youtubeId ? youtubeThumbnail(youtubeId) : null;
+
+  const instagramEmbed = /instagram\.com/i.test(fetchUrl)
+    ? await fetchInstagramEmbedMetadata(fetchUrl)
+    : {};
+
+  if (/instagram\.com/i.test(fetchUrl)) {
+    console.log('Instagram metadata sources', {
+      url: fetchUrl.slice(0, 100),
+      embedCaptionLen: instagramEmbed.description?.length ?? 0,
+      hasEmbedImage: Boolean(instagramEmbed.image),
+      shareTitle: shareCaption.slice(0, 60) || '(none)',
+    });
+  }
 
   const external = await fetchExternalMetadata(fetchUrl);
 
   const externalTitle = external.title ? cleanPageTitle(external.title, fetchUrl) : '';
-  if (externalTitle && !isGenericShareTitle(externalTitle)) {
+  const hasEmbedCaption = Boolean(instagramEmbed.description || instagramEmbed.title);
+  if ((isUsableMetadataTitle(externalTitle) || hasEmbedCaption) && (externalTitle || hasEmbedCaption)) {
     const oembed = await fetchOEmbed(fetchUrl);
-    return sanitizeMetadata({
-      title: pickBestTitle([externalTitle, oembed.title], fetchUrl) ?? externalTitle,
-      description: summarizeDescription(
-        pickBestDescription([external.description, oembed.description]),
-      ),
-      image: external.image ?? oembed.image ?? youtubeThumb,
-    });
+    return mergeSocialMetadata(
+      {
+        title: pickBestTitle([shareCaption, instagramEmbed.title, externalTitle, oembed.title], fetchUrl) ?? externalTitle,
+        description: summarizeDescription(
+          pickBestDescription([shareCaption, instagramEmbed.description, external.description, oembed.description]),
+        ),
+        image: pickBestImage([instagramEmbed.image, external.image, oembed.image, youtubeThumb]),
+      },
+      fetchUrl,
+      shareTitle,
+      instagramEmbed,
+    );
   }
 
   try {
@@ -1024,12 +1891,19 @@ async function fetchLinkMetadata(url: string, shareTitle: string): Promise<LinkM
       const oembed = await fetchOEmbed(fetchUrl);
 
       const rawTitle = pickBestTitle(
-        [playerData.title, oembed.title, ogTitle, external.title, fallbackTitle],
+        [shareCaption, instagramEmbed.title, playerData.title, oembed.title, ogTitle, external.title, fallbackTitle],
         fetchUrl,
       ) ?? fallbackTitle;
       const title = cleanPageTitle(rawTitle, fetchUrl);
       const description = summarizeDescription(
-        pickBestDescription([playerData.description, oembed.description, ogDesc, external.description]),
+        pickBestDescription([
+          shareCaption,
+          instagramEmbed.description,
+          playerData.description,
+          oembed.description,
+          ogDesc,
+          external.description,
+        ]),
       );
 
       const source = playerData.title && title === cleanPageTitle(playerData.title, fetchUrl) ? 'player'
@@ -1045,30 +1919,45 @@ async function fetchLinkMetadata(url: string, shareTitle: string): Promise<LinkM
         source,
       });
 
-      return sanitizeMetadata({
-        title,
-        description,
-        image: external.image ?? oembed.image ?? ogImage ?? youtubeThumb,
-      });
+      return mergeSocialMetadata(
+        {
+          title,
+          description,
+          image: pickBestImage([instagramEmbed.image, external.image, oembed.image, ogImage, youtubeThumb]),
+        },
+        fetchUrl,
+        shareTitle,
+        instagramEmbed,
+      );
     }
   } catch (error) {
     console.warn('Metadata HTML fetch skipped', error instanceof Error ? error.name : error);
   }
 
   if (external.title) {
-    return sanitizeMetadata({
-      title: cleanPageTitle(external.title, fetchUrl),
-      description: summarizeDescription(external.description ?? ''),
-      image: external.image ?? youtubeThumb,
-    });
+    return mergeSocialMetadata(
+      {
+        title: cleanPageTitle(external.title, fetchUrl),
+        description: summarizeDescription(external.description ?? ''),
+        image: pickBestImage([instagramEmbed.image, external.image, youtubeThumb]),
+      },
+      fetchUrl,
+      shareTitle,
+      instagramEmbed,
+    );
   }
 
   const oembed = await fetchOEmbed(fetchUrl);
-  return sanitizeMetadata({
-    title: cleanPageTitle(oembed.title ?? fallbackTitle, fetchUrl),
-    description: oembed.description ?? '',
-    image: oembed.image ?? youtubeThumb,
-  });
+  return mergeSocialMetadata(
+    {
+      title: cleanPageTitle(pickBestTitle([shareCaption, instagramEmbed.title, oembed.title], fetchUrl) ?? fallbackTitle, fetchUrl),
+      description: oembed.description ?? '',
+      image: pickBestImage([instagramEmbed.image, oembed.image, youtubeThumb]),
+    },
+    fetchUrl,
+    shareTitle,
+    instagramEmbed,
+  );
 }
 
 function isGenericBoardName(name: string): boolean {
@@ -1103,9 +1992,6 @@ const MUSIC_PERFORMANCE =
  * NOT used for primary classification — never reads description (platform boilerplate).
  */
 function inferGranularBoard(metadata: LinkMetadata, url: string): string | null {
-  if (/\/products?\//i.test(url)) return 'Fashion';
-  if (isCommerceUrl(url)) return 'Shopping';
-
   const title = metadata.title.trim();
   if (!title) return null;
 
@@ -1135,6 +2021,8 @@ function inferGranularBoard(metadata: LinkMetadata, url: string): string | null 
 
   if (isLikelyFootball(title, '')) return 'Football';
 
+  if (isYouTubeMusicCandidate(metadata, url)) return 'Music';
+
   return null;
 }
 
@@ -1150,7 +2038,8 @@ function refineBoardName(
     const inferred = inferGranularBoard(metadata, url);
     if (inferred) refined = pickExistingOrCatalog(existingBoards, inferred, catalog);
   }
-  return validateBoardChoice(refined, metadata, url, existingBoards, catalog);
+  const validated = validateBoardChoice(refined, metadata, url, existingBoards, catalog);
+  return upgradeCatchallBoard(validated, metadata, url, existingBoards, catalog);
 }
 
 /** Correct common mislabels (e.g. rap reel classified as Art) */
@@ -1164,7 +2053,25 @@ function validateBoardChoice(
   const text = `${metadata.title} ${metadata.description}`;
   const boardLower = board.trim().toLowerCase();
 
+  if (
+    (boardLower === 'shopping' || boardLower === 'fashion' || boardLower === 'home') &&
+    (isYouTubeMusicCandidate(metadata, url) || (boardLower === 'shopping' && !isCommerceUrl(url)))
+  ) {
+    return pickMusicBoardFromMetadata(metadata, existingBoards, catalog);
+  }
+
+  if (boardLower === 'art' && /tattoo|刺青|纹身|tatuaje/i.test(text)) {
+    return pickExistingOrCatalog(existingBoards, 'Tattoo', catalog);
+  }
+
   const userMatch = existingBoards.find((b) => b.toLowerCase() === boardLower);
+  if (userMatch && isIncidentalUserBoardMatch(metadata, url, userMatch, existingBoards, catalog)) {
+    console.log('Incidental user board match rejected', {
+      board: userMatch,
+      title: metadata.title.slice(0, 80),
+    });
+    return resolveBoardAfterWeakUserMatch(metadata, url, existingBoards, catalog);
+  }
   if (userMatch) return userMatch;
 
   if (isRejectableBoardName(board)) {
@@ -1172,7 +2079,7 @@ function validateBoardChoice(
     if (refined && !isRejectableBoardName(refined)) {
       return pickExistingOrCatalog(existingBoards, refined, catalog);
     }
-    const topic = inferTopicBoard(metadata, existingBoards, catalog);
+    const topic = inferTopicBoard(metadata, url, existingBoards, catalog);
     if (topic && !isRejectableBoardName(topic)) {
       return pickExistingOrCatalog(existingBoards, topic, catalog);
     }
@@ -1195,7 +2102,7 @@ function validateBoardChoice(
     return preferred ?? pickExistingOrCatalog(existingBoards, inferred, catalog);
   }
 
-  return board;
+  return upgradeCatchallBoard(board, metadata, url, existingBoards, catalog);
 }
 
 function isPlatformChromeTitle(title: string): boolean {
@@ -1207,26 +2114,11 @@ function isPlatformChromeTitle(title: string): boolean {
   return false;
 }
 
-function isSparseMetadata(metadata: LinkMetadata, _url: string): boolean {
-  const title = metadata.title.trim();
-  const desc = metadata.description.trim();
-  const combined = `${title} ${desc}`.trim();
+function isSparseMetadata(metadata: LinkMetadata, url: string): boolean {
+  if (!hasTrustworthyCaption(metadata, url)) return true;
 
-  if (isGenericShareTitle(title)) return true;
-  if (isPlatformChromeTitle(title)) return true;
-
-  // Author-only metadata: "By Creator Name" with no real description
-  if (desc.length < 50 && /^by\s+[\w\s.@]+$/i.test(desc)) return true;
-
-  // Handle-only title (@creator) — caption carries the real topic
-  if (/^@[\w.]+$/.test(title.trim())) return true;
-
-  // Handle/account-only title with little context
-  if (/^@?\w[\w.]+\s*\(@[\w.]+\)\s*$/.test(title) && desc.length < 50) return true;
-
-  // Very little combined text but we have a preview image — topic likely in the image
+  const combined = `${metadata.title.trim()} ${metadata.description.trim()}`.trim();
   if (metadata.image && combined.length < 90) return true;
-  if (desc.length < 25 && title.length < 40) return true;
 
   return false;
 }
@@ -1246,6 +2138,10 @@ function acceptAiBoardPick(
   }
   if (isPlatformBoardName(rawBoard)) {
     console.log(`${provider}: platform board rejected`, { board: rawBoard });
+    return null;
+  }
+  if (!hasTrustworthyCaption(metadata, url) && isPlatformGenericBoardName(rawBoard)) {
+    console.log(`${provider}: platform-generic board rejected (untrustworthy caption)`, { board: rawBoard });
     return null;
   }
   return refineBoardName(rawBoard, metadata, url, boardList, catalog);
@@ -1341,8 +2237,8 @@ function buildTitleFromMetadata(metadata: LinkMetadata, url: string, boardName?:
   const board = boardName?.toLowerCase() ?? '';
 
   if (/^@[\w.]+$/.test(raw)) {
-    if (board === 'hip-hop') return `Freestyle: ${raw}`.slice(0, MAX_BOOKMARK_TITLE);
-    return raw.slice(0, MAX_BOOKMARK_TITLE);
+    const label = boardName?.trim() || 'Post';
+    return `${label}: ${raw}`.slice(0, MAX_BOOKMARK_TITLE);
   }
 
   const scoreline = parseFootballScoreline(raw);
@@ -1360,7 +2256,10 @@ function buildTitleFromMetadata(metadata: LinkMetadata, url: string, boardName?:
     return `${prefix}: ${dish}`.slice(0, MAX_BOOKMARK_TITLE);
   }
 
-  if (board === 'fashion' || board === 'shopping' || board === 'home') {
+  if (
+    (board === 'fashion' || board === 'shopping' || board === 'home') &&
+    !isYouTubeMusicCandidate(metadata, url)
+  ) {
     return `Product: ${raw}`.slice(0, MAX_BOOKMARK_TITLE);
   }
 
@@ -1395,6 +2294,16 @@ function buildTitleFromMetadata(metadata: LinkMetadata, url: string, boardName?:
 
   if (board === 'inspiration' || board === 'motivation' || board === 'art' || board === 'ideas') {
     return raw.slice(0, MAX_BOOKMARK_TITLE);
+  }
+
+  if (board === 'tattoo') {
+    const text = `${metadata.title}\n${metadata.description}`;
+    const enLine = metadata.description.split('\n').map((l) => l.trim())
+      .find((l) => /^[a-zA-Z0-9][a-zA-Z0-9\s\-']+$/.test(l) && l.length >= 4);
+    if (enLine) return `Tattoo: ${enLine}`.slice(0, MAX_BOOKMARK_TITLE);
+    if (/tiger|chrysanthemum/i.test(text)) return 'Tattoo: Tiger chrysanthemum';
+    if (/tattoo|刺青|纹身/i.test(text)) return 'Tattoo: Traditional ink work';
+    return 'Tattoo art';
   }
 
   if (/youtube\.com|youtu\.be/i.test(url) && raw.length > 5) {
@@ -1459,8 +2368,16 @@ function polishClassifyResult(
   url: string,
   existingBoards: string[] = [],
   catalog: BoardCatalog = FALLBACK_CATALOG,
+  options: { plainCopy?: boolean } = {},
 ): ClassifyResult {
   result.board_name = refineBoardName(result.board_name, metadata, url, existingBoards, catalog);
+
+  if (options.plainCopy) {
+    const plain = plainCopyFromMetadata(metadata);
+    result.title = plain.title;
+    result.description = sanitizeBookmarkDescription(plain.description) || plain.description;
+    return reconcileBoardWithClassification(result, metadata, url, existingBoards, catalog);
+  }
 
   const rawMetaTitle = youtubeVideoTitle(metadata.title);
   const scoreline = parseFootballScoreline(rawMetaTitle) ?? parseFootballScoreline(result.title);
@@ -1496,7 +2413,15 @@ function polishClassifyResult(
     const rebuilt = buildTitleFromMetadata(metadata, url, result.board_name);
     if (rebuilt.length <= MAX_BOOKMARK_TITLE) result.title = rebuilt;
   }
-  return result;
+
+  const upgraded = reconcileBoardWithClassification(
+    result,
+    metadata,
+    url,
+    existingBoards,
+    catalog,
+  );
+  return upgraded;
 }
 
 function resolveGenericBoard(
@@ -1511,14 +2436,19 @@ function resolveGenericBoard(
   return { board_name: existing?.name ?? board_name, is_new_board: !existing };
 }
 
-const AI_BOARD_RULES = `- USER BOARDS (listed first) have highest priority — if the link fits one, pick that exact name
-- Broad boards (Fitness, Food, Travel, Sport) are valid when the link fits many sub-topics — do not force a narrow pick
-- Prefer a specific catalog match only when no user board fits (K-Pop not Pop, Recipes for cooking)
-- Classify by SUBJECT/TOPIC — NOT by media format
-- NEVER pick Video, Vídeo, Posts, Content, Entertainment as format catch-alls
-- Freestyle / rap / hip-hop → Hip-Hop (NOT Art)
-- Clothing / product pages → Fashion, Sneakers, or Shopping
-- Art = paintings, illustrations — NOT music performances`;
+const AI_BOARD_RULES = `CLASSIFICATION ORDER (follow strictly):
+1. USER BOARDS — pick only if the link topic genuinely fits one the user already has
+2. CATALOG BOARDS — if no user board fits, pick the best name from CATALOG (Rock, Music, Pop, Hip-Hop, Recipes, etc.)
+3. NEVER Ideas/Inspiration when any catalog board fits — Ideas is only for truly unclassifiable links
+
+Additional rules:
+- Song titles matching a board name are NOT a topic match (song "Medicine" ≠ health board)
+- Classify by SUBJECT/TOPIC — NOT by media format (never Video, Posts, Entertainment as catch-alls)
+- NEVER pick Social Media, Social Network, or platform names as board — classify the POST topic from image/caption
+- Instagram/TikTok/Pinterest with poor metadata (app name, login text, @handle only) → topic is in the IMAGE
+- YouTube music → Rock, Music, or a genre catalog board — NOT Ideas
+- board_name MUST match the genre/topic in your title and description
+- is_new_board: true when picking a catalog board the user does not already have`;
 
 function buildBoardPrompt(
   url: string,
@@ -1554,14 +2484,61 @@ Description: ${metadata.description || '(none)'}
 ALLOWED BOARDS:
 ${allowedBoardsPrompt}
 
-board_name: MUST be exactly one name from ALLOWED BOARDS
+board_name: MUST be exactly one name from ALLOWED BOARDS — MUST match the topic/genre in your title and description (if title says Rock, board must be Rock or Music, never Ideas)
 title (max ${MAX_BOOKMARK_TITLE}): short label as [type] + [subject], not raw page title
 description (max ${MAX_BOOKMARK_DESC}): 1–2 sentences about content — NEVER likes/comments/views/followers
+${AI_COPY_LANGUAGE_RULE}
 is_new_board: true only if user does not already have this board
 
 ${AI_BOARD_RULES}
 
 JSON only: {"board_name":"...","title":"...","description":"...","is_new_board":true|false}`;
+}
+
+function isMisleadingCopyTitle(title: string, boardName: string, metadata: LinkMetadata): boolean {
+  const t = title.toLowerCase();
+  const b = boardName.toLowerCase();
+  const meta = `${metadata.title} ${metadata.description}`.toLowerCase();
+  const musicPrefixes = ['freestyle', 'track', 'live', 'live set', 'song', 'remix', 'mv'];
+
+  if (/\bfreestyle\b/.test(t) && b !== 'hip-hop') return true;
+  if (/\b(track|song|mv|official video|remix)\b/.test(t) && !isMusicRelatedBoardName(boardName)) return true;
+
+  const prefix = title.split(':')[0]?.trim().toLowerCase() ?? '';
+  if (prefix && !isMusicRelatedBoardName(boardName)) {
+    if (musicPrefixes.some((p) => prefix === p || prefix.startsWith(`${p} `))) return true;
+  }
+
+  if (prefix && b.length >= 3) {
+    const boardWords = b.split(/[\s-]+/).filter((w) => w.length >= 4);
+    const prefixMatchesBoard = boardWords.some((w) => prefix.includes(w));
+    const metaMatchesPrefix = prefix.length >= 4 && meta.includes(prefix);
+    if (!prefixMatchesBoard && !metaMatchesPrefix && musicPrefixes.some((p) => prefix.includes(p))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function sanitizeAiBookmarkCopy(
+  title: string,
+  description: string,
+  boardName: string,
+  metadata: LinkMetadata,
+  url: string,
+): { title: string; description: string } {
+  if (!isMisleadingCopyTitle(title, boardName, metadata)) {
+    return { title: title.trim().slice(0, MAX_BOOKMARK_TITLE), description };
+  }
+  console.log('AI copy title rejected — rebuilding from board + metadata', {
+    title: title.slice(0, 50),
+    board: boardName,
+  });
+  return {
+    title: buildTitleFromMetadata(metadata, url, boardName),
+    description: description.trim() || buildDescriptionFromMetadata(metadata, url, boardName),
+  };
 }
 
 function buildTitleDescriptionPrompt(
@@ -1575,12 +2552,11 @@ URL: ${url}
 Page title: ${metadata.title}
 Page description: ${metadata.description || '(none)'}
 
-title (max ${MAX_BOOKMARK_TITLE} chars): short label as [type]: [subject] — NOT the raw page title.
-  Good: "Freestyle: EAZYBOI x TRIPLO" (28 chars)
-  Bad: "Track: EAZYBOI FT TRIPLO en 2SPICY CORNER (GRIMEY x PALESTINA)" (too long)
-description (max ${MAX_BOOKMARK_DESC} chars): 1–2 sentences about WHAT the content is (artists, topic, context).
+${COPY_TITLE_RULES}
+description (max ${MAX_BOOKMARK_DESC} chars): 1–2 sentences about WHAT the content is — from metadata only.
   NEVER platform boilerplate ("Enjoy the videos...", likes, views, subscribers).
   NEVER append "Original title:".
+${AI_COPY_LANGUAGE_RULE}
 
 JSON only: {"title":"...","description":"..."}`;
 }
@@ -1600,12 +2576,10 @@ ALLOWED BOARDS (pick exactly one):
 ${allowedBoardsPrompt}
 
 Rules:
-- MUST pick from ALLOWED BOARDS only — pick the most specific TOPIC match
-- NEVER pick Video, Vídeo, Music, Música, Tutorials, Entertainment as generic format boards
-- Classify what the content is ABOUT (any language)
-- Freestyle / rap / hip-hop in image → Hip-Hop (NOT Art)
-- Quote / motivation text → Inspiration
-- Do NOT pick Hip-Hop for clothing, products, or generic brand pages
+${AI_BOARD_RULES}
+- MUST pick from ALLOWED BOARDS only — classify what you SEE in the image (food, tattoo, outfit, workout, landscape, etc.)
+- Ignore platform/login boilerplate in metadata — the image is the primary signal
+- Quote / motivation text in image → Inspiration
 
 JSON only: {"board_name":"...","is_new_board":true|false}`;
 }
@@ -1840,6 +2814,7 @@ async function classifyWithGroqUnified(
   catalog: BoardCatalog,
 ): Promise<ClassifyResult | null> {
   const boardList = boards.map((b) => b.name);
+  logClassifyMetadata(metadata, url, boardList, 'Groq unified');
   const response = await callGroq(
     buildUnifiedClassifyPrompt(url, metadata, allowedBoardsPrompt),
     apiKey,
@@ -1870,7 +2845,41 @@ async function classifyWithGroqUnified(
   parsed.board_name = board_name;
   parsed.is_new_board = resolveIsNewBoard(parsed.board_name, boards, parsed.is_new_board ?? true);
 
-  console.log('Groq unified: success (1-call)', { model: response.model, board: parsed.board_name });
+  if (isCatchallBoardName(parsed.board_name)) {
+    const tiered = resolveBoardTiered(
+      metadata,
+      url,
+      boardList,
+      catalog,
+      `${parsed.title} ${parsed.description}`,
+    );
+    if (tiered) {
+      console.log('Groq unified: tiered override', {
+        from: parsed.board_name,
+        to: tiered.board_name,
+        tier: tiered.tier,
+        aiTitle: parsed.title.slice(0, 60),
+      });
+      parsed.board_name = tiered.board_name;
+      parsed.is_new_board = tiered.tier === 'catalog' &&
+        !boardList.some((b) => b.toLowerCase() === tiered.board_name.toLowerCase());
+    } else {
+      const copyBoard = inferBoardFromText(`${parsed.title} ${parsed.description}`, boardList, catalog);
+      if (copyBoard && !isCatchallBoardName(copyBoard)) {
+        console.log('Groq unified: board/copy mismatch', {
+          board: parsed.board_name,
+          aiTitle: parsed.title.slice(0, 60),
+          suggestedFromCopy: copyBoard,
+        });
+      }
+    }
+  }
+
+  console.log('Groq unified: success (1-call)', {
+    model: response.model,
+    board: parsed.board_name,
+    aiTitle: parsed.title.slice(0, 60),
+  });
   return polishClassifyResult(parsed, metadata, url, boardList, catalog);
 }
 
@@ -1880,11 +2889,12 @@ async function generateCopyWithGroq(
   boardName: string,
   apiKey: string,
 ): Promise<{ title: string; description: string } | null> {
+  // Copy always uses 70B — 8B anchors on prompt patterns and hallucinates subjects
   for (let attempt = 1; attempt <= 2; attempt++) {
     const response = await callGroq(
       buildTitleDescriptionPrompt(url, metadata, boardName),
       apiKey,
-      [groqFallbackModel()],
+      [groqPrimaryModel()],
     );
     const parsed = parseJsonFromGemini<{ title: string; description: string }>(response?.text ?? '');
     if (!parsed?.title?.trim()) {
@@ -1893,13 +2903,20 @@ async function generateCopyWithGroq(
     }
     const description = sanitizeBookmarkDescription(parsed.description ?? '') ||
       buildDescriptionFromMetadata(metadata, url, boardName);
+    const sanitized = sanitizeAiBookmarkCopy(
+      parsed.title,
+      description,
+      boardName,
+      metadata,
+      url,
+    );
     console.log(`Groq copy attempt ${attempt}: ok`, {
       model: response?.model,
-      title: parsed.title.trim().slice(0, 40),
+      title: sanitized.title.slice(0, 40),
     });
     return {
-      title: parsed.title.trim().slice(0, MAX_BOOKMARK_TITLE),
-      description,
+      title: sanitized.title,
+      description: sanitized.description,
     };
   }
   console.log('Groq copy failed after 2 attempts — using template title/description');
@@ -1915,10 +2932,12 @@ async function generateCopyWithGemini(
   const text = await callGemini(buildTitleDescriptionPrompt(url, metadata, boardName), apiKey);
   const parsed = parseJsonFromGemini<{ title: string; description: string }>(text ?? '');
   if (!parsed?.title?.trim() || !parsed?.description?.trim()) return null;
+  const description = sanitizeBookmarkDescription(parsed.description) ||
+    buildDescriptionFromMetadata(metadata, url, boardName);
+  const sanitized = sanitizeAiBookmarkCopy(parsed.title, description, boardName, metadata, url);
   return {
-    title: parsed.title.trim().slice(0, MAX_BOOKMARK_TITLE),
-    description: sanitizeBookmarkDescription(parsed.description) ||
-      buildDescriptionFromMetadata(metadata, url, boardName),
+    title: sanitized.title,
+    description: sanitized.description,
   };
 }
 
@@ -1964,6 +2983,11 @@ async function classifyWithGroq(
   );
   if (unified) {
     return { source: 'groq', result: unified };
+  }
+
+  if (hasUnreliableSocialMetadata(metadata, url)) {
+    console.log('Groq unified failed on sparse social — skipping 8B (unreliable metadata)');
+    return null;
   }
 
   const boardPick = await pickBoardWithGroq(
@@ -2022,6 +3046,7 @@ async function classifyWithGeminiUnified(
   catalog: BoardCatalog,
 ): Promise<ClassifyResult | null> {
   const boardList = boards.map((b) => b.name);
+  logClassifyMetadata(metadata, url, boardList, 'Gemini unified');
   const text = await callGemini(buildUnifiedClassifyPrompt(url, metadata, allowedBoardsPrompt), apiKey);
   const parsed = parseJsonFromGemini<ClassifyResult>(text ?? '');
   if (!parsed?.board_name || !parsed.title || !parsed.description) return null;
@@ -2051,6 +3076,7 @@ async function pickBoardWithGeminiVision(
   if (!imageData) return null;
 
   const boardList = boards.map((b) => b.name);
+  logClassifyMetadata(metadata, url, boardList, 'Gemini vision');
   const text = await callGeminiGenerate(
     [
       { text: buildBoardVisionPrompt(url, metadata, allowedBoardsPrompt) },
@@ -2117,7 +3143,7 @@ async function classifyWithGeminiVision(
   catalog: BoardCatalog,
 ): Promise<ClassificationOutcome | null> {
   const apiKey = Deno.env.get('GEMINI_API_KEY');
-  if (!apiKey || !metadata.image) return null;
+  if (!apiKey || !hasUsableVisionImage(metadata)) return null;
 
   const boardList = boards.map((b) => b.name);
   const allowedBoardsPrompt = formatAllowedBoardsPrompt(catalog, boardList);
@@ -2144,37 +3170,81 @@ async function classifyLink(
   const boardList = boards.map((b) => b.name);
   const groqKey = Deno.env.get('GROQ_API_KEY');
   const geminiKey = Deno.env.get('GEMINI_API_KEY');
+  const groqEnabled = Boolean(groqKey) && Deno.env.get('SKIP_GROQ') !== 'true';
+  const geminiEnabled = Boolean(geminiKey) && Deno.env.get('SKIP_GEMINI') !== 'true';
 
-  // 1. Heuristics (primary)
-  const heuristic = tryHeuristicBoard(metadata, url, boardList, catalog);
-  if (heuristic?.confident && !isRejectableBoardName(heuristic.board_name)) {
-    console.log('Classified with heuristics (primary)', { board: heuristic.board_name });
-    return heuristicClassificationOutcome(boards, metadata, url, heuristic.board_name, catalog);
+  logClassifyMetadata(metadata, url, boardList, 'Classify');
+
+  // 1. Tier-1 user boards + tier-2 catalog keywords (deterministic, free)
+  const tiered = resolveBoardTiered(metadata, url, boardList, catalog);
+  if (tiered) {
+    console.log(`Classified tier-${tiered.tier === 'user' ? '1 (user board)' : '2 (catalog)'}`, {
+      board: tiered.board_name,
+    });
+    return await classifyWithDeterministicBoard(
+      boards, metadata, url, tiered.board_name, catalog, groqEnabled, geminiEnabled,
+    );
   }
 
-  // 2. Groq — text classification (separate quota from Gemini)
-  if (groqKey) {
+  // 2. Groq unified (board + title + description) — always first AI step
+  if (groqEnabled) {
     const groq = await classifyWithGroq(boards, metadata, url, catalog);
-    if (groq) return groq;
-    console.log('Groq could not classify — trying Gemini');
+    if (groq) {
+      if (geminiEnabled) {
+        const vision = await maybeUpgradeWithVision(boards, metadata, url, catalog, groq);
+        if (vision) return vision;
+      }
+      if (shouldRejectTextOnlyAiOnSparseSocial(metadata, url)) {
+        console.log('Rejecting text-only Groq pick on sparse social metadata');
+      } else {
+        return groq;
+      }
+    }
+
+    if (geminiEnabled && needsVisionForUntrustworthySocial(metadata, url)) {
+      console.log('Groq text exhausted on sparse social — trying Gemini vision');
+      const vision = await classifyWithGeminiVision(boards, metadata, url, catalog);
+      if (vision) return vision;
+    } else {
+      console.log('Groq could not classify — trying Gemini');
+    }
   }
 
-  // 3. Gemini — text fallback, then vision for sparse social posts
-  if (geminiKey && Deno.env.get('SKIP_GEMINI') !== 'true') {
+  // 3. Gemini text → vision when text fails or pick is generic
+  if (geminiEnabled) {
     const geminiText = await classifyWithGeminiText(boards, metadata, url, catalog);
-    if (geminiText) return geminiText;
+    if (geminiText) {
+      const vision = await maybeUpgradeWithVision(boards, metadata, url, catalog, geminiText);
+      if (vision) return vision;
+      if (shouldRejectTextOnlyAiOnSparseSocial(metadata, url)) {
+        console.log('Rejecting text-only Gemini pick on sparse social metadata');
+      } else {
+        return geminiText;
+      }
+    }
 
-    const needsVision = metadata.image && isSocialContentUrl(url) &&
-      (isSparseMetadata(metadata, url) || shouldUseVision(metadata, url, null));
-    if (needsVision) {
+    if (
+      hasUsableVisionImage(metadata) &&
+      isSocialContentUrl(url) &&
+      (!hasTrustworthyCaption(metadata, url) || shouldUseVision(metadata, url, null))
+    ) {
       const geminiVision = await classifyWithGeminiVision(boards, metadata, url, catalog);
       if (geminiVision) return geminiVision;
     }
 
-    console.log('Gemini unavailable — using generic board fallback');
+    console.log('Gemini could not classify — trying heuristics');
+  } else if (!groqEnabled) {
+    console.log('AI providers disabled or missing keys — trying heuristics');
   }
 
-  // 4. Safe generic board — AI unavailable; no topic heuristics (avoids false positives)
+  // 4. Heuristics (AI unavailable, quota exhausted, or parse failure)
+  const heuristic = tryHeuristicBoard(metadata, url, boardList, catalog);
+  if (heuristic?.confident && !isRejectableBoardName(heuristic.board_name)) {
+    console.log('Classified with heuristics (fallback)', { board: heuristic.board_name });
+    return heuristicClassificationOutcome(boards, metadata, url, heuristic.board_name, catalog);
+  }
+
+  // 5. Ideas / Inspiration — absolute last resort
   return aiUnavailableFallbackOutcome(boards, metadata, url, catalog);
 }
 

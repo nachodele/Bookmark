@@ -285,7 +285,8 @@ Never commit `.env` or service role keys.
 
 ## Further reading
 
-- [docs/CLASSIFICATION.md](docs/CLASSIFICATION.md) — **full classification pipeline**
+- [docs/CLASSIFICATION.md](docs/CLASSIFICATION.md) — **classification pipeline** (order, heuristics, AI, cache)
+- [docs/SAVE_BOOKMARK_FUNCTION.md](docs/SAVE_BOOKMARK_FUNCTION.md) — **`index.ts` structure** (modules, functions, where to edit)
 - [docs/SUPABASE_SETUP.md](docs/SUPABASE_SETUP.md) — new project from scratch
 - [docs/GROQ_SETUP.md](docs/GROQ_SETUP.md) — Groq API + secrets
 - [docs/GEMINI_SETUP.md](docs/GEMINI_SETUP.md) — Gemini API + secrets

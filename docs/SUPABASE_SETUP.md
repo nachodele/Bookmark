@@ -69,7 +69,7 @@ Full secret list: [CLASSIFICATION.md](./CLASSIFICATION.md#supabase-secrets-compl
 ### Option B — Dashboard (no CLI)
 
 1. **Edge Functions → Create function** → name: `save-bookmark`
-2. Paste code from `supabase/functions/save-bookmark/index.ts`
+2. Paste code from `supabase/functions/save-bookmark/index.ts` (see [SAVE_BOOKMARK_FUNCTION.md](./SAVE_BOOKMARK_FUNCTION.md) for structure)
 3. **Project Settings → Edge Functions → Secrets** → add:
    - `GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_FALLBACK_MODEL`, `GEMINI_API_KEY`
 4. Deploy
