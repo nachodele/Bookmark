@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -53,9 +53,12 @@ export default function HomeScreen() {
   const [onboardingVisible, setOnboardingVisible] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [reopenLinkAfterBoard, setReopenLinkAfterBoard] = useState(false);
+  const isFirstFocus = useRef(true);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { initial?: boolean }) => {
     if (!user) return;
+
+    if (opts?.initial) setLoading(true);
 
     try {
       if (isOnline) {
@@ -99,15 +102,11 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
-      void load();
+      void load({ initial: isFirstFocus.current });
+      isFirstFocus.current = false;
       if (user) void checkOnboarding();
     }, [load, user, checkOnboarding]),
   );
-
-  useEffect(() => {
-    if (user) void checkOnboarding();
-  }, [user, checkOnboarding]);
 
   const filteredBoards = useMemo(
     () => filterBoardsByName(boards, search),

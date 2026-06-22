@@ -157,7 +157,7 @@ npm run android
 
 - **Android device/emulator:** [docs/ANDROID_SETUP.md](docs/ANDROID_SETUP.md)
 - **iOS:** `npm run ios:prebuild` then open in Xcode / `npm run ios`
-- **Installable APK (no USB):** `npx eas build --platform android --profile preview` from `mobile/`
+- **Installable APK (no USB):** `npm run build:apk` from `mobile/`
 
 ---
 
@@ -226,8 +226,8 @@ Without API keys, heuristics handle obvious links; everything else goes to **Ide
 | Goal | Command (from `mobile/`) |
 |------|--------------------------|
 | Local dev build | `npm run android` / `npm run ios` |
-| Shareable APK | `npx eas build --platform android --profile preview` |
-| Play Store | `npx eas build --platform android --profile production` |
+| Shareable APK | `npm run build:apk` |
+| Play Store | `eas build --platform android --profile production` |
 
 Env vars (`EXPO_PUBLIC_*`) are baked in at build time — change `.env` and rebuild to update them.
 

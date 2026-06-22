@@ -43,7 +43,7 @@ export default function TabsLayout() {
           tabBarLabel: 'Home',
           href: isLoggedIn ? undefined : null,
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'grid' : 'grid-outline'} size={size} color={color} />
+            <Ionicons name={focused ? 'home' : 'home-outline'} size={size} color={color} />
           ),
         }}
       />
