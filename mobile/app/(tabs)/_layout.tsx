@@ -43,7 +43,11 @@ export default function TabsLayout() {
           tabBarLabel: 'Home',
           href: isLoggedIn ? undefined : null,
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'home' : 'home-outline'} size={size} color={color} />
+            <Ionicons
+              name={isWeb ? 'home-outline' : focused ? 'home' : 'home-outline'}
+              size={focused && isWeb ? size + 1 : size}
+              color={color}
+            />
           ),
         }}
       />
@@ -66,7 +70,11 @@ export default function TabsLayout() {
           tabBarLabel: 'Account',
           headerShown: false,
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'person-circle' : 'person-circle-outline'} size={size} color={color} />
+            <Ionicons
+              name={isWeb ? 'person-circle-outline' : focused ? 'person-circle' : 'person-circle-outline'}
+              size={focused && isWeb ? size + 1 : size}
+              color={color}
+            />
           ),
         }}
       />
