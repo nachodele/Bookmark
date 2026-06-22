@@ -2,29 +2,34 @@ import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useBottomSafeInset } from '@/hooks/useBottomSafeInset';
+import { isWeb } from '@/lib/platform';
 
 export default function TabsLayout() {
   const { user } = useAuth();
   const { colors } = useTheme();
   const isLoggedIn = Boolean(user);
+  const tabBarBottom = useBottomSafeInset(isWeb ? 24 : 8);
+  const tabBarHeight = 48 + tabBarBottom;
 
   return (
     <Tabs
       screenOptions={{
         headerStyle: { backgroundColor: colors.background },
-        headerTintColor: colors.text,
+        headerTintColor: colors.accent,
         headerShadowVisible: false,
         sceneStyle: { backgroundColor: colors.background },
         tabBarStyle: isLoggedIn
           ? {
               backgroundColor: colors.surface,
               borderTopColor: colors.surfaceBorder,
-              height: 60,
-              paddingBottom: 8,
-              paddingTop: 8,
+              height: tabBarHeight,
+              paddingBottom: tabBarBottom,
+              paddingTop: 6,
             }
           : { display: 'none' },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        tabBarItemStyle: { paddingTop: 2 },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600', marginBottom: 2 },
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.textMuted,
         headerShown: isLoggedIn,
@@ -57,6 +62,7 @@ export default function TabsLayout() {
         name="account"
         options={{
           title: isLoggedIn ? 'Account' : 'Sign in',
+          tabBarLabel: 'Account',
           headerShown: false,
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons name={focused ? 'person-circle' : 'person-circle-outline'} size={size} color={color} />

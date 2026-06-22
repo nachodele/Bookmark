@@ -2,6 +2,7 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { isPasswordSetupRequired } from '@/lib/auth/password-setup';
 import { NetworkProvider } from '@/contexts/NetworkContext';
@@ -11,6 +12,8 @@ import { WebShareCapture } from '@/components/WebShareCapture';
 import { ShareIntentRoot } from '@/components/ShareIntentRoot';
 import { ShareReviewProvider, ShareReviewPendingConsumer } from '@/contexts/ShareReviewContext';
 import { ShareIntentConsumer } from '@/components/ShareIntentConsumer';
+import { WebHeaderBack } from '@/components/WebHeaderBack';
+import { isWeb } from '@/lib/platform';
 
 function RootNavigator() {
   const { user, loading } = useAuth();
@@ -58,9 +61,16 @@ function RootNavigator() {
       <Stack
         screenOptions={{
           headerStyle: { backgroundColor: colors.background },
-          headerTintColor: colors.text,
+          headerTintColor: colors.accent,
           headerShadowVisible: false,
           contentStyle: { backgroundColor: colors.background },
+          ...(isWeb
+            ? {
+                headerBackVisible: false,
+                headerBackTitleVisible: false,
+                headerLeft: () => <WebHeaderBack />,
+              }
+            : {}),
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -98,19 +108,21 @@ function RootNavigator() {
 
 export default function RootLayout() {
   return (
-    <ShareIntentRoot>
-      <ThemeProvider>
-        <NetworkProvider>
-          <AuthProvider>
-            <WebShareCapture />
-            <ShareReviewProvider>
-              <ShareReviewPendingConsumer />
-              <ShareIntentConsumer />
-              <RootNavigator />
-            </ShareReviewProvider>
-          </AuthProvider>
-        </NetworkProvider>
-      </ThemeProvider>
-    </ShareIntentRoot>
+    <SafeAreaProvider>
+      <ShareIntentRoot>
+        <ThemeProvider>
+          <NetworkProvider>
+            <AuthProvider>
+              <WebShareCapture />
+              <ShareReviewProvider>
+                <ShareReviewPendingConsumer />
+                <ShareIntentConsumer />
+                <RootNavigator />
+              </ShareReviewProvider>
+            </AuthProvider>
+          </NetworkProvider>
+        </ThemeProvider>
+      </ShareIntentRoot>
+    </SafeAreaProvider>
   );
 }

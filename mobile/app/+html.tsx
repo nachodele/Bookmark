@@ -26,6 +26,13 @@ export default function Root({ children }: PropsWithChildren) {
             font-display: swap;
           }
         `}</style>
+        <style id="bookmark-pwa-shell">{`
+          html, body, #root {
+            margin: 0;
+            min-height: 100%;
+            min-height: 100dvh;
+          }
+        `}</style>
         <ScrollViewStyleReset />
       </head>
       <body>{children}</body>
