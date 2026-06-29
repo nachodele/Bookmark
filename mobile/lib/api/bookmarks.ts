@@ -55,7 +55,13 @@ export async function deleteBookmark(bookmarkId: string, userId: string): Promis
 export async function updateBookmark(
   bookmarkId: string,
   userId: string,
-  updates: { title?: string; description?: string; board_id?: string; thumbnail_url?: string | null },
+  updates: {
+    title?: string;
+    description?: string;
+    board_id?: string;
+    thumbnail_url?: string | null;
+    keywords?: string[];
+  },
 ): Promise<Bookmark> {
   const { data, error } = await supabase
     .from('bookmarks')
@@ -94,7 +100,8 @@ export function filterBookmarksLocally(
       b.description?.toLowerCase().includes(q) ||
       b.url.toLowerCase().includes(q) ||
       b.source_app?.toLowerCase().includes(q) ||
-      boardName.includes(q)
+      boardName.includes(q) ||
+      b.keywords?.some((k) => k.toLowerCase().includes(q))
     );
   });
 }

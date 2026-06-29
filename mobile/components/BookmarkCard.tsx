@@ -1,4 +1,4 @@
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { Bookmark } from '@/lib/supabase/database.types';
 import { useTheme } from '@/contexts/ThemeContext';
 import { detectSourceApp, faviconUrl } from '@/lib/utils/source';
@@ -13,6 +13,7 @@ export function BookmarkCard({ bookmark, boardName, onPress }: BookmarkCardProps
   const { colors } = useTheme();
   const source = bookmark.source_app ?? detectSourceApp(bookmark.url);
   const thumb = bookmark.thumbnail_url ?? faviconUrl(bookmark.url);
+  const keywords = bookmark.keywords?.slice(0, 3) ?? [];
 
   return (
     <Pressable
@@ -41,6 +42,15 @@ export function BookmarkCard({ bookmark, boardName, onPress }: BookmarkCardProps
           <Text style={[styles.description, { color: colors.textSecondary }]} numberOfLines={2}>
             {bookmark.description}
           </Text>
+        ) : null}
+        {keywords.length > 0 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips}>
+            {keywords.map((kw) => (
+              <View key={kw} style={[styles.chip, { backgroundColor: colors.accentMuted }]}>
+                <Text style={[styles.chipText, { color: colors.accent }]}>{kw}</Text>
+              </View>
+            ))}
+          </ScrollView>
         ) : null}
         <View style={styles.footer}>
           <View style={styles.metaRow}>
@@ -90,6 +100,19 @@ const styles = StyleSheet.create({
   description: {
     fontSize: 13,
     lineHeight: 18,
+  },
+  chips: {
+    marginTop: 2,
+  },
+  chip: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginRight: 4,
+  },
+  chipText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   footer: {
     marginTop: 4,

@@ -161,7 +161,7 @@ export default function HomeScreen() {
       <OfflineBanner />
       <View style={styles.header}>
         <View style={styles.headerTop}>
-          <Text style={[styles.greeting, { color: colors.text }]}>Bookmark</Text>
+          <Text style={[styles.greeting, { color: colors.text }]}>nook</Text>
           <GuideButton onPress={() => setGuideVisible(true)} />
         </View>
         <SearchBar value={search} onChangeText={setSearch} placeholder="Search boards..." />

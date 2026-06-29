@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { Alert } from 'react-native';
 import type { Board, BookmarkWithBoard } from '@/lib/supabase/database.types';
 import { deleteBookmark, updateBookmark } from '@/lib/api/bookmarks';
-import { fetchBoardNames, moveBookmark } from '@/lib/api/boards';
+import { fetchBoardNames, fetchBookmarkBoardIds, setBookmarkBoards } from '@/lib/api/boards';
 import { BookmarkDetailModal } from '@/components/BookmarkDetailModal';
 import { BoardPickerModal } from '@/components/BoardPickerModal';
 import { useAuth } from '@/contexts/AuthContext';
@@ -13,6 +13,7 @@ export function useBookmarkActions(onChanged?: () => void) {
   const isOnline = useIsOnline();
   const [selected, setSelected] = useState<BookmarkWithBoard | null>(null);
   const [boards, setBoards] = useState<Board[]>([]);
+  const [currentBoardIds, setCurrentBoardIds] = useState<string[]>([]);
   const [pickerVisible, setPickerVisible] = useState(false);
 
   const openDetail = useCallback((bookmark: BookmarkWithBoard) => {
@@ -33,16 +34,21 @@ export function useBookmarkActions(onChanged?: () => void) {
     return true;
   };
 
-  const openMovePicker = async () => {
-    if (!user || !requireOnline()) return;
-    const list = await fetchBoardNames(user.id);
+  const openBoardsPicker = async () => {
+    if (!user || !selected || !requireOnline()) return;
+    const [list, ids] = await Promise.all([
+      fetchBoardNames(user.id),
+      fetchBookmarkBoardIds(selected.id, user.id),
+    ]);
     setBoards(list);
+    setCurrentBoardIds(ids);
     setPickerVisible(true);
   };
 
-  const handleMove = async (boardId: string) => {
+  const handleSetBoards = async (boardIds: string[]) => {
     if (!user || !selected) return;
-    await moveBookmark(selected.id, boardId, user.id);
+    const primary = boardIds[0] ?? selected.board_id ?? '';
+    await setBookmarkBoards(selected.id, user.id, boardIds, primary);
     onChanged?.();
     closeDetail();
   };
@@ -51,6 +57,7 @@ export function useBookmarkActions(onChanged?: () => void) {
     title: string;
     description: string;
     thumbnail_url?: string | null;
+    keywords?: string[];
   }) => {
     if (!user || !selected || !requireOnline()) return;
     await updateBookmark(selected.id, user.id, updates);
@@ -81,7 +88,7 @@ export function useBookmarkActions(onChanged?: () => void) {
         bookmark={selected}
         userId={user?.id ?? null}
         onClose={closeDetail}
-        onMove={openMovePicker}
+        onOpenBoards={openBoardsPicker}
         onSave={handleSave}
         onDelete={handleDelete}
       />
@@ -89,8 +96,11 @@ export function useBookmarkActions(onChanged?: () => void) {
         visible={pickerVisible}
         boards={boards}
         currentBoardId={selected?.board_id}
-        onSelect={handleMove}
+        onSelect={() => {}}
         onClose={() => setPickerVisible(false)}
+        multiSelect
+        selectedBoardIds={currentBoardIds}
+        onSelectMultiple={handleSetBoards}
       />
     </>
   );

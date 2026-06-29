@@ -18,6 +18,7 @@ import { PasswordInput } from '@/components/PasswordInput';
 import { InfoModal } from '@/components/InfoModal';
 import { Screen } from '@/components/Screen';
 import { ABOUT, FAQ, SUPPORT } from '@/lib/content/info';
+import { PRIVACY_POLICY, PRIVACY_POLICY_VERSION } from '@/lib/content/privacy';
 import { SocialAuthButtons } from '@/components/SocialAuthButtons';
 import { finishOAuthSignIn } from '@/lib/auth/oauth-flow';
 import { setOnboardingPending } from '@/lib/onboarding';
@@ -69,6 +70,8 @@ export default function AccountScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [infoView, setInfoView] = useState<InfoView>(null);
   const [goHomeAfterAuth, setGoHomeAfterAuth] = useState(false);
+  const [consent, setConsent] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
 
   useEffect(() => {
     if (!goHomeAfterAuth || !user) return;
@@ -80,6 +83,7 @@ export default function AccountScreen() {
     setIsSignUp((v) => !v);
     setEmailConfirm('');
     setPasswordConfirm('');
+    setConsent(false);
     setMessage(null);
   };
 
@@ -121,8 +125,9 @@ export default function AccountScreen() {
       }
     }
 
-    const action = isSignUp ? signUp : signIn;
-    const { error } = await action(trimmedEmail, password);
+    const { error } = isSignUp
+      ? await signUp(trimmedEmail, password, { policyVersion: PRIVACY_POLICY_VERSION })
+      : await signIn(trimmedEmail, password);
 
     if (error) {
       setMessage(error);
@@ -150,7 +155,7 @@ export default function AccountScreen() {
   };
 
   const canSubmit = isSignUp
-    ? Boolean(email && emailConfirm && password && passwordConfirm)
+    ? Boolean(email && emailConfirm && password && passwordConfirm && consent)
     : Boolean(email && password);
 
   if (loading) {
@@ -171,7 +176,7 @@ export default function AccountScreen() {
           <View style={[styles.logoCircle, { backgroundColor: colors.accentMuted }]}>
             <Ionicons name="bookmark" size={36} color={colors.accent} />
           </View>
-          <Text style={[styles.title, { color: colors.text }]}>Bookmark</Text>
+          <Text style={[styles.title, { color: colors.text }]}>nook</Text>
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
             Save and organize links with AI
           </Text>
@@ -217,6 +222,24 @@ export default function AccountScreen() {
               <Text style={[styles.hint, { color: colors.textMuted }]}>
                 Min. 8 characters, 1 uppercase, 1 lowercase, 1 number
               </Text>
+              <View style={styles.consentRow}>
+                <Pressable onPress={() => setConsent((v) => !v)} hitSlop={8}>
+                  <Ionicons
+                    name={consent ? 'checkbox' : 'square-outline'}
+                    size={22}
+                    color={consent ? colors.accent : colors.textMuted}
+                  />
+                </Pressable>
+                <Text style={[styles.consentText, { color: colors.textSecondary }]}>
+                  <Text onPress={() => setConsent((v) => !v)}>{PRIVACY_POLICY.consentSummary} </Text>
+                  <Text
+                    style={{ color: colors.accent, fontWeight: '600' }}
+                    onPress={() => setShowPrivacy(true)}
+                  >
+                    Read the Privacy Policy
+                  </Text>
+                </Text>
+              </View>
             </>
           ) : null}
 
@@ -243,6 +266,10 @@ export default function AccountScreen() {
             <Text style={[styles.message, { color: colors.text }]}>{message}</Text>
           ) : null}
         </ScrollView>
+
+        <InfoModal visible={showPrivacy} title={PRIVACY_POLICY.title} onClose={() => setShowPrivacy(false)}>
+          <Text style={[styles.infoBody, { color: colors.textSecondary }]}>{PRIVACY_POLICY.body}</Text>
+        </InfoModal>
       </Screen>
     );
   }
@@ -269,7 +296,7 @@ export default function AccountScreen() {
 
         <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>HELP</Text>
         <View style={styles.menuGroup}>
-          <MenuRow icon="information-circle-outline" label="About Bookmark" onPress={() => setInfoView('about')} colors={colors} />
+          <MenuRow icon="information-circle-outline" label="About nook" onPress={() => setInfoView('about')} colors={colors} />
           <MenuRow icon="help-circle-outline" label="FAQ" onPress={() => setInfoView('faq')} colors={colors} />
           <MenuRow icon="mail-outline" label="Support" onPress={() => setInfoView('support')} colors={colors} />
         </View>
@@ -292,8 +319,8 @@ export default function AccountScreen() {
 
       <InfoModal visible={infoView === 'support'} title={SUPPORT.title} onClose={() => setInfoView(null)}>
         <Text style={[styles.infoBody, { color: colors.textSecondary }]}>{SUPPORT.body}</Text>
-        <Pressable onPress={() => Linking.openURL('mailto:supportbookmark@gmail.com')}>
-          <Text style={[styles.link, { color: colors.accent, marginTop: 16 }]}>Email supportbookmark@gmail.com</Text>
+        <Pressable onPress={() => Linking.openURL('mailto:supportnook@gmail.com')}>
+          <Text style={[styles.link, { color: colors.accent, marginTop: 16 }]}>Email supportnook@gmail.com</Text>
         </Pressable>
       </InfoModal>
     </Screen>
@@ -320,6 +347,8 @@ const styles = StyleSheet.create({
   link: { textAlign: 'center', marginTop: 8, fontSize: 15, fontWeight: '600' },
   message: { textAlign: 'center', marginTop: 8, fontSize: 14 },
   hint: { fontSize: 13, lineHeight: 18, marginTop: -4 },
+  consentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 4 },
+  consentText: { flex: 1, fontSize: 13, lineHeight: 19 },
   loggedIn: { padding: 20, paddingTop: 48, paddingBottom: 40, gap: 12 },
   profileCard: {
     flexDirection: 'row',

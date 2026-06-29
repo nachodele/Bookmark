@@ -1,5 +1,9 @@
 import { useLocalSearchParams, useNavigation } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+
+type SortOrder = 'newest' | 'oldest' | 'az';
+const SORT_ICONS: Record<SortOrder, string> = { newest: 'time-outline', oldest: 'time', az: 'text' };
+const SORT_NEXT: Record<SortOrder, SortOrder> = { newest: 'oldest', oldest: 'az', az: 'newest' };
 import {
   ActivityIndicator,
   Alert,
@@ -54,6 +58,7 @@ export default function BoardDetailScreen() {
   const [coverUri, setCoverUri] = useState<string | null>(null);
   const [coverBusy, setCoverBusy] = useState(false);
   const [linkModalVisible, setLinkModalVisible] = useState(false);
+  const [sort, setSort] = useState<SortOrder>('newest');
   const { openShareReview } = useShareReview();
 
   const load = useCallback(async () => {
@@ -105,6 +110,9 @@ export default function BoardDetailScreen() {
       ),
       headerRight: () => (
         <View style={styles.headerActions}>
+          <Pressable onPress={() => setSort((s) => SORT_NEXT[s])} style={styles.headerBtn}>
+            <Ionicons name={SORT_ICONS[sort] as any} size={22} color={colors.accent} />
+          </Pressable>
           <Pressable onPress={() => setLinkModalVisible(true)} style={styles.headerBtn}>
             <Ionicons name="add" size={26} color={colors.accent} />
           </Pressable>
@@ -114,14 +122,19 @@ export default function BoardDetailScreen() {
         </View>
       ),
     });
-  }, [navigation, colors, boardName, bookmarks.length]);
+  }, [navigation, colors, boardName, bookmarks.length, sort]);
 
   const filtered = useMemo(() => {
     const withBoard = bookmarks.map(
       (b): BookmarkWithBoard => ({ ...b, board: { id: id!, name: boardName } }),
     );
-    return filterBookmarksLocally(withBoard, search);
-  }, [bookmarks, search, id, boardName]);
+    const searched = filterBookmarksLocally(withBoard, search);
+    if (sort === 'newest') return searched;
+    if (sort === 'oldest') return [...searched].reverse();
+    return [...searched].sort((a, b) =>
+      (a.title ?? a.url).localeCompare(b.title ?? b.url),
+    );
+  }, [bookmarks, search, id, boardName, sort]);
 
   const onRefresh = async () => {
     setRefreshing(true);

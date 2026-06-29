@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase/client';
-import type { Board, BoardWithCount } from '@/lib/supabase/database.types';
+import type { Board, BoardWithCount, Bookmark } from '@/lib/supabase/database.types';
 
 export async function fetchBoards(userId: string): Promise<BoardWithCount[]> {
   const { data: boards, error } = await supabase
@@ -56,16 +56,40 @@ export async function createBoard(
   return data;
 }
 
-export async function fetchBoardBookmarks(boardId: string, userId: string) {
-  const { data, error } = await supabase
+export async function fetchBoardBookmarks(boardId: string, userId: string): Promise<Bookmark[]> {
+  // Primary board
+  const { data: primary, error: e1 } = await supabase
     .from('bookmarks')
     .select('*')
     .eq('board_id', boardId)
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
+  if (e1) throw e1;
 
-  if (error) throw error;
-  return data ?? [];
+  // Secondary memberships
+  const { data: memberships, error: e2 } = await supabase
+    .from('bookmark_board_memberships')
+    .select('bookmark_id')
+    .eq('board_id', boardId)
+    .eq('user_id', userId);
+  if (e2) throw e2;
+
+  if (!memberships?.length) return primary ?? [];
+
+  const primaryIds = new Set((primary ?? []).map((b) => b.id));
+  const extraIds = memberships.map((m) => m.bookmark_id).filter((id) => !primaryIds.has(id));
+
+  if (!extraIds.length) return primary ?? [];
+
+  const { data: extra, error: e3 } = await supabase
+    .from('bookmarks')
+    .select('*')
+    .in('id', extraIds)
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  if (e3) throw e3;
+
+  return [...(primary ?? []), ...(extra ?? [])];
 }
 
 export async function moveBookmark(
@@ -80,6 +104,55 @@ export async function moveBookmark(
     .eq('user_id', userId);
 
   if (error) throw error;
+}
+
+export async function fetchBookmarkBoardIds(
+  bookmarkId: string,
+  userId: string,
+): Promise<string[]> {
+  const [{ data: bookmark }, { data: memberships }] = await Promise.all([
+    supabase.from('bookmarks').select('board_id').eq('id', bookmarkId).eq('user_id', userId).single(),
+    supabase.from('bookmark_board_memberships').select('board_id').eq('bookmark_id', bookmarkId).eq('user_id', userId),
+  ]);
+
+  const ids: string[] = [];
+  if (bookmark?.board_id) ids.push(bookmark.board_id);
+  for (const m of memberships ?? []) {
+    if (!ids.includes(m.board_id)) ids.push(m.board_id);
+  }
+  return ids;
+}
+
+export async function setBookmarkBoards(
+  bookmarkId: string,
+  userId: string,
+  boardIds: string[],
+  primaryBoardId: string,
+): Promise<void> {
+  // Update primary board
+  const { error: e1 } = await supabase
+    .from('bookmarks')
+    .update({ board_id: primaryBoardId })
+    .eq('id', bookmarkId)
+    .eq('user_id', userId);
+  if (e1) throw e1;
+
+  // Replace memberships (secondary boards)
+  const secondaryIds = boardIds.filter((id) => id !== primaryBoardId);
+
+  const { error: e2 } = await supabase
+    .from('bookmark_board_memberships')
+    .delete()
+    .eq('bookmark_id', bookmarkId)
+    .eq('user_id', userId);
+  if (e2) throw e2;
+
+  if (secondaryIds.length) {
+    const { error: e3 } = await supabase.from('bookmark_board_memberships').insert(
+      secondaryIds.map((board_id) => ({ bookmark_id: bookmarkId, board_id, user_id: userId })),
+    );
+    if (e3) throw e3;
+  }
 }
 
 export async function updateBookmarkTitle(

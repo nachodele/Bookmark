@@ -1,6 +1,6 @@
 export const ABOUT = {
-  title: 'About Bookmark',
-  body: `Bookmark is your universal Save button for the internet.
+  title: 'About nook',
+  body: `nook is your universal Save button for the internet.
 
 Share a link from any app — YouTube, Instagram, TikTok, articles — and AI organizes it into visual boards that match how you think: Music, Football, Recipes, Design… not just "YouTube" or "Instagram".
 
@@ -10,9 +10,9 @@ Built for people who collect ideas, inspiration, and resources across the web.`,
 };
 
 export const GUIDE = {
-  title: 'How to use Bookmark',
+  title: 'How to use nook',
   intro:
-    'Bookmark learns from the boards you create. A few minutes of setup makes classification feel personal instead of generic.',
+    'nook learns from the boards you create. A few minutes of setup makes classification feel personal instead of generic.',
   steps: [
     {
       title: '1. Create boards',
@@ -27,7 +27,7 @@ export const GUIDE = {
     {
       title: '3. Add links',
       body:
-        'Add link: paste a URL and tap Analyze with AI — review board, title, and thumbnail before saving.\n\nShare Sheet: Share → Bookmark from any app — same AI review flow.',
+        'Add link: paste a URL and tap Analyze with AI — review board, title, and thumbnail before saving.\n\nShare Sheet: Share → nook from any app — same AI review flow.',
     },
     {
       title: '4. Review and adjust',
@@ -49,11 +49,11 @@ export function getGuideSteps() {
 export const FAQ = [
   {
     q: 'How do I save a link?',
-    a: 'Tap Add link and paste a URL, or Share from any app and choose Bookmark. AI suggests board, title, and thumbnail — you review before saving. You must be signed in.',
+    a: 'Tap Add link and paste a URL, or Share from any app and choose nook. AI suggests board, title, and thumbnail — you review before saving. You must be signed in.',
   },
   {
     q: 'How does AI classification work?',
-    a: 'We read the link title, description, and metadata. Your existing boards are checked first, then our category catalog. See "How to use Bookmark" for tips.',
+    a: 'We read the link title, description, and metadata. Your existing boards are checked first, then our category catalog. See "How to use nook" for tips.',
   },
   {
     q: 'Can I move or edit saves?',

@@ -3294,6 +3294,26 @@ async function classifyLink(
   return aiUnavailableFallbackOutcome(boards, metadata, url, catalog);
 }
 
+/** Bare host (no www) — a key training/grouping feature on the resources table. */
+function deriveDomain(url: string): string | null {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/** Coarse content type from URL/source — feeds moodboard view + model features. */
+function deriveResourceType(url: string): string {
+  const u = url.toLowerCase();
+  if (/youtube\.com|youtu\.be|tiktok\.com|vimeo\.com|\/shorts\//.test(u)) return 'video';
+  if (/\.pdf($|\?)/.test(u)) return 'pdf';
+  if (/instagram\.com|pinterest\.|\.(jpg|jpeg|png|webp|gif)($|\?)/.test(u)) return 'image';
+  if (isCommerceUrl(url)) return 'product';
+  if (isSocialContentUrl(url)) return 'post';
+  return 'article';
+}
+
 async function findExistingBookmark(
   supabase: SupabaseClient,
   userId: string,
@@ -3332,6 +3352,8 @@ type SaveBookmarkBody = {
   board_id?: string;
   board_name?: string;
   thumbnail_url?: string | null;
+  /** AI's originally-suggested category (echoed back from preview) — lets us flag user overrides. */
+  ai_category?: string;
 };
 
 type BoardRow = { id: string; name: string; cover_url: string | null };
@@ -3440,6 +3462,15 @@ async function saveConfirmedBookmark(
     description,
     source_app: sourceApp,
     thumbnail_url: thumbnailUrl,
+    // Enrichment: user explicitly confirmed this category.
+    final_category: boardName,
+    ai_category: body.ai_category ?? null,
+    category_source: 'user',
+    was_recategorized: body.ai_category
+      ? body.ai_category.toLowerCase() !== boardName.toLowerCase()
+      : false,
+    domain: deriveDomain(canonicalUrl),
+    resource_type: deriveResourceType(canonicalUrl),
   });
 
   if (insertError) {
@@ -3470,9 +3501,10 @@ async function saveClassifiedBookmark(
     metadata: Awaited<ReturnType<typeof fetchLinkMetadata>>;
     classified: ClassifyResult;
     boardList: BoardRow[];
+    source: ClassificationSource;
   },
 ): Promise<Response> {
-  const { rawUrl, canonicalUrl, sourceApp, metadata, classified, boardList } = params;
+  const { rawUrl, canonicalUrl, sourceApp, metadata, classified, boardList, source } = params;
 
   const resolved = await resolveBoardForSave(
     supabase,
@@ -3496,6 +3528,13 @@ async function saveClassifiedBookmark(
     description: classified.description,
     source_app: sourceApp,
     thumbnail_url: metadata.image,
+    // Enrichment: AI auto-classified (no user confirmation step).
+    ai_category: classified.board_name,
+    final_category: boardName,
+    category_source: source,
+    was_recategorized: false,
+    domain: deriveDomain(canonicalUrl),
+    resource_type: deriveResourceType(canonicalUrl),
   });
 
   if (insertError) {
@@ -3625,6 +3664,9 @@ Deno.serve(async (req) => {
       is_new_board: !existingBoard,
       thumbnail_url: metadata.image,
       source_app: sourceApp,
+      // Echo the AI's pick so the client can send it back on confirm — lets us record
+      // was_recategorized when the user changes the category.
+      ai_category: classified.board_name,
     });
   }
 
@@ -3635,5 +3677,6 @@ Deno.serve(async (req) => {
     metadata,
     classified,
     boardList,
+    source: classificationOutcome.source,
   });
 });

@@ -20,7 +20,11 @@ type AuthContextValue = {
   session: Session | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signUp: (email: string, password: string) => Promise<{ error: string | null }>;
+  signUp: (
+    email: string,
+    password: string,
+    consent?: { policyVersion: number },
+  ) => Promise<{ error: string | null }>;
   signInWithOAuth: (provider: OAuthProvider) => Promise<OAuthSignInResult>;
   refreshSession: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -54,12 +58,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error ? formatAuthError(error.message) : null };
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string) => {
+  const signUp = useCallback(async (
+    email: string,
+    password: string,
+    consent?: { policyVersion: number },
+  ) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: getAuthRedirectUrl(),
+        // Record privacy-policy consent on the auth user (audit trail without a separate table).
+        data: consent
+          ? {
+              privacy_policy_version: consent.policyVersion,
+              privacy_accepted_at: new Date().toISOString(),
+              data_commercialization_consent: true,
+            }
+          : undefined,
       },
     });
 
